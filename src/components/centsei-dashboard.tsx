@@ -80,6 +80,7 @@ import useLocalStorage from "@/hooks/use-local-storage";
 import { parseDateInTimezone, stripUndefined } from "@/lib/utils";
 import { subscribeFCM, unsubscribeFCM } from "@/lib/notifications-fcm";
 import { MigrationDialog } from './migration-dialog';
+import { isLocalMode } from '@/lib/local-mode';
 
 const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezone: string): Entry[] => {
   if (!entry.date) return [];
@@ -295,10 +296,10 @@ export default function CentseiDashboard() {
   const confettiRef = useRef<JSConfetti | null>(null);
   
   useEffect(() => {
-    if (!authLoading && !user && !isGuest) {
+    if (!authLoading && !user && !isLocalMode()) {
       router.replace('/login');
     }
-  }, [user, authLoading, isGuest, router]);
+  }, [user, authLoading, router]);
 
   useEffect(() => {
     if (user && firestore) {
@@ -925,7 +926,7 @@ export default function CentseiDashboard() {
     return <CentseiLoader isAuthLoading={true} />;
   }
 
-  if (!user && !isGuest) {
+  if (!user && !isGuest && !isLocalMode()) {
     return <CentseiLoader isAuthLoading={true} />;
   }
   
