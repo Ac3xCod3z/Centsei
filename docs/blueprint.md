@@ -1,4 +1,4 @@
-# **App Name**: FiscalFlow
+# **App Name**: Centsei
 
 ## Core Features:
 
