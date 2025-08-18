@@ -1,4 +1,3 @@
-
 // src/components/auth-provider.tsx
 "use client";
 
@@ -102,6 +101,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setLoading(true);
       await signInWithPopup(auth, googleProvider);
+      // After sign-in, the onAuthStateChanged listener will handle the user state update
+      // and subsequent component re-renders.
     } catch (error) {
       console.error("Error during sign-in:", error);
       setLoading(false);

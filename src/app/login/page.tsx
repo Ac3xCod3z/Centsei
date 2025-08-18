@@ -1,44 +1,33 @@
+// src/app/login/page.tsx
+"use client";
 
-'use client';
-
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
+import { useAuth } from '@/components/auth-provider';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
+import { CentseiLoader } from '@/components/centsei-loader';
 import { enableLocalMode, disableLocalMode } from '@/lib/local-mode';
 
 export default function LoginPage() {
+  const { user, signInWithGoogle, loading, continueAsGuest } = useAuth();
   const router = useRouter();
 
-  // If already signed in, go home
   useEffect(() => {
-    if (!auth) return;
-    const unsub = onAuthStateChanged(auth, (u) => {
-      if (u) router.replace('/');
-    });
-    return () => unsub();
-  }, [router]);
-
-  const signInWithGoogle = async () => {
-    try {
-      if (!auth) return;
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-      disableLocalMode();          // prefer cloud mode after login
+    if (!loading && user) {
       router.replace('/');
-    } catch (err) {
-      console.error('Google sign-in failed', err);
-      // Optionally show a toast
     }
-  };
+  }, [user, loading, router]);
+  
+  const handleUseWithoutAccount = () => {
+    continueAsGuest();
+    router.replace('/');
+  }
 
-  const useWithoutAccount = () => {
-    enableLocalMode();             // opt into offline/local mode
-    router.replace('/');           // go to dashboard without auth
-  };
-
+  if (loading || user) {
+    return <CentseiLoader isAuthLoading />;
+  }
+  
   return (
     <main className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-sm p-6 rounded-xl border bg-card shadow-sm space-y-6 text-center">
@@ -58,7 +47,7 @@ export default function LoginPage() {
 
           <div className="text-xs text-muted-foreground">or</div>
 
-          <Button variant="outline" className="w-full" onClick={useWithoutAccount}>
+          <Button variant="outline" className="w-full" onClick={handleUseWithoutAccount}>
             Use without account (local only)
           </Button>
         </div>
