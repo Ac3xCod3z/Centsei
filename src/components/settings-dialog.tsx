@@ -47,9 +47,6 @@ import { timezones } from "@/lib/timezones";
 import { ScrollArea } from "./ui/scroll-area";
 import useLocalStorage from "@/hooks/use-local-storage";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
-import { firestore } from "@/lib/firebase";
-import { writeBatch, collection, doc, updateDoc, serverTimestamp } from "firebase/firestore";
-
 
 const formSchema = z.object({
   incomeLevel: z.coerce.number().positive({ message: "Income must be a positive number." }),
@@ -89,7 +86,6 @@ export function SettingsDialog({
   birthdays,
   onBirthdaysChange,
 }: SettingsDialogProps) {
-  const { user } = useAuth();
   const [recommendation, setRecommendation] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
@@ -100,23 +96,6 @@ export function SettingsDialog({
   const [hasCopied, setHasCopied] = useState(false);
   const { setTheme, theme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const updateFirestoreSettings = async (settings: any) => {
-    if (user) {
-      try {
-        const userDocRef = doc(firestore, "users", user.uid);
-        await updateDoc(userDocRef, {
-          "settings": settings,
-          updated_at: serverTimestamp()
-        });
-      } catch (e) {
-         // If settings update fails, it could be because the user doc doesn't exist.
-         // This is a good place to create it with setDoc and merge:true if needed,
-         // but for now we'll just log the error.
-         console.error("Failed to update settings in Firestore:", e);
-      }
-    }
-  };
 
   useEffect(() => {
     if (isOpen) {
@@ -165,39 +144,10 @@ export function SettingsDialog({
                 throw new Error("File is not readable");
             }
             const importedData = JSON.parse(text);
-
-            if (user) {
-              const batch = writeBatch(firestore);
-              if (importedData.entries && Array.isArray(importedData.entries)) {
-                importedData.entries.forEach((entry: any) => {
-                  const { id, ...entryData } = entry;
-                  // Generate a new doc ref for each entry to avoid conflicts
-                  const docRef = doc(collection(firestore, 'users', user.uid, 'calendar_entries'));
-                  batch.set(docRef, entryData);
-                });
-              }
-              if (importedData.goals && Array.isArray(importedData.goals)) {
-                  importedData.goals.forEach((goal: any) => {
-                    const { id, ...goalData } = goal;
-                    const docRef = doc(collection(firestore, 'users', user.uid, 'goals'));
-                    batch.set(docRef, goalData);
-                  });
-              }
-               if (importedData.birthdays && Array.isArray(importedData.birthdays)) {
-                  importedData.birthdays.forEach((bday: any) => {
-                    const { id, ...bdayData } = bday;
-                    const docRef = doc(collection(firestore, 'users', user.uid, 'birthdays'));
-                    batch.set(docRef, bdayData);
-                  });
-              }
-              await batch.commit();
-            } else {
-              // Logic for local import
-              if (importedData.entries && Array.isArray(importedData.entries)) onEntriesChange(importedData.entries);
-              if (importedData.goals && Array.isArray(importedData.goals)) onGoalsChange(importedData.goals);
-              if (importedData.birthdays && Array.isArray(importedData.birthdays)) onBirthdaysChange(importedData.birthdays);
-            }
             
+            if (importedData.entries && Array.isArray(importedData.entries)) onEntriesChange(importedData.entries);
+            if (importedData.goals && Array.isArray(importedData.goals)) onGoalsChange(importedData.goals);
+            if (importedData.birthdays && Array.isArray(importedData.birthdays)) onBirthdaysChange(importedData.birthdays);
             if(importedData.rolloverPreference) onRolloverPreferenceChange(importedData.rolloverPreference);
             if(importedData.timezone) onTimezoneChange(importedData.timezone);
             
@@ -212,13 +162,6 @@ export function SettingsDialog({
         }
     };
     reader.readAsText(file);
-  };
-
-  const handleNotificationToggle = () => {
-    onNotificationsToggle(!notificationsEnabled);
-    if(user) {
-        updateFirestoreSettings({ notificationsEnabled: !notificationsEnabled, timezone });
-    }
   };
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -269,13 +212,6 @@ export function SettingsDialog({
         toast({ title: "Copy Failed", description: "Could not copy the link to your clipboard.", variant: "destructive" });
     });
   };
-
-  const handleTimezoneChange = (tz: string) => {
-      onTimezoneChange(tz);
-      if (user) {
-          updateFirestoreSettings({ timezone: tz, notificationsEnabled });
-      }
-  }
 
   if (!isOpen) {
     return null;
@@ -383,7 +319,7 @@ export function SettingsDialog({
                   <h3 className="font-semibold">Notifications</h3>
                   <p className="text-sm text-muted-foreground">Get reminders for your upcoming bills, delivered right to your device.</p>
                   <Button 
-                      onClick={handleNotificationToggle} 
+                      onClick={() => onNotificationsToggle(!notificationsEnabled)} 
                       className="w-full btn-primary-hover"
                       variant={notificationsEnabled ? 'secondary' : 'default'}
                       disabled={notificationPermission === 'denied'}
@@ -401,7 +337,7 @@ export function SettingsDialog({
               <div className="space-y-2">
                 <Label htmlFor="timezone" className="font-semibold">Timezone</Label>
                 <p className="text-sm text-muted-foreground">Select your local timezone to ensure dates are handled correctly.</p>
-                <Select onValueChange={handleTimezoneChange} defaultValue={timezone}>
+                <Select onValueChange={onTimezoneChange} defaultValue={timezone}>
                   <SelectTrigger id="timezone" className="w-full">
                     <SelectValue placeholder="Select a timezone" />
                   </SelectTrigger>

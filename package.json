@@ -8,7 +8,7 @@
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
     "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
     "build": "next build",
-    "prebuild": "node src/scripts/generate-sw-config.js && node src/scripts/generate-pwa-assets.js",
+    "prebuild": "node src/scripts/generate-pwa-assets.js",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"

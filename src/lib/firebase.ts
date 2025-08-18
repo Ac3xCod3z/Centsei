@@ -1,9 +1,7 @@
-
 // src/lib/firebase.ts
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
-import { getMessaging, type Messaging } from 'firebase/messaging';
 import { getAnalytics, type Analytics } from "firebase/analytics";
 
 const firebaseConfig = {
@@ -23,7 +21,6 @@ let auth: Auth | null = null;
 let firestore: Firestore | null = null;
 let googleProvider: GoogleAuthProvider | null = null;
 let analytics: Analytics | null = null;
-let messaging: Messaging | null = null;
 
 if (firebaseConfig.apiKey) {
     try {
@@ -32,7 +29,6 @@ if (firebaseConfig.apiKey) {
         firestore = getFirestore(app);
         googleProvider = new GoogleAuthProvider();
         analytics = typeof window !== 'undefined' && firebaseConfig.measurementId ? getAnalytics(app) : null;
-        messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
     } catch (e) {
         console.error("Failed to initialize Firebase", e);
     }
@@ -41,4 +37,4 @@ if (firebaseConfig.apiKey) {
 }
 
 // Ensure you export the potentially null values and handle them in your components.
-export { app, auth, firestore, googleProvider, messaging, analytics };
+export { app, auth, firestore, googleProvider, analytics };
