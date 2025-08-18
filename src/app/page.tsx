@@ -1,8 +1,9 @@
-
-import CentseiDashboard from "@/components/centsei-dashboard";
-
-export default function Home() {
-  // The dashboard component now contains the logic to handle authentication
-  // and redirects, making this page a simple entry point.
-  return <CentseiDashboard />;
+// src/app/page.tsx
+export default function HomePage() {
+  return (
+    <main style={{ padding: 24 }}>
+      <h1>Centsei</h1>
+      <p>Home is alive. Try /login next.</p>
+    </main>
+  );
 }
