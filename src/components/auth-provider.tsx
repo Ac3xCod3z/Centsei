@@ -5,7 +5,6 @@ import React, { createContext, useContext, useEffect, useState, useMemo } from '
 import { User, onAuthStateChanged, signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth';
 import { auth, googleProvider, firestore } from '@/lib/firebase';
 import { CentseiLoader } from './centsei-loader';
-import { MigrationDialog } from './migration-dialog';
 import type { Entry, Goal, Birthday } from '@/lib/types';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
@@ -133,17 +132,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={value}>
       {children}
-      {showMigrationDialog && user && localData && (
-          <MigrationDialog 
-            isOpen={showMigrationDialog}
-            onClose={() => {
-                setShowMigrationDialog(false);
-                exitGuest();
-            }}
-            localData={localData}
-            user={user}
-          />
-      )}
     </AuthContext.Provider>
   );
 }
