@@ -14,6 +14,12 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
+// Check if all required config values are present
+const hasConfig = 
+    firebaseConfig.apiKey &&
+    firebaseConfig.authDomain &&
+    firebaseConfig.projectId &&
+    firebaseConfig.appId;
 
 // Initialize Firebase
 let app: FirebaseApp | null = null;
@@ -22,7 +28,7 @@ let firestore: Firestore | null = null;
 let googleProvider: GoogleAuthProvider | null = null;
 let analytics: Analytics | null = null;
 
-if (firebaseConfig.apiKey) {
+if (hasConfig) {
     try {
         app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
         auth = getAuth(app);
