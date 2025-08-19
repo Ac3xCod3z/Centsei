@@ -1,66 +1,49 @@
 
-"use client";
+'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 
-// Custom hook for using localStorage that is SSR-safe and syncs between tabs
-function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] {
-  
-  const [storedValue, setStoredValue] = useState<T>(() => {
-    if (typeof window === 'undefined') {
-      return initialValue;
-    }
+function coerceFromRaw<T>(raw: string, fallback: T): T {
+  // accept JSON literals that JSON.parse would accept when quoted improperly
+  if (raw === 'true' || raw === 'false') return (raw === 'true') as unknown as T;
+  // numeric?
+  const n = Number(raw);
+  if (!Number.isNaN(n) && raw.trim() !== '') return n as unknown as T;
+  // otherwise treat as string if fallback is a string; else give up
+  if (typeof fallback === 'string') return raw as unknown as T;
+  return fallback;
+}
+
+export default function useLocalStorage<T>(key: string, initialValue: T) {
+  const [value, setValue] = useState<T>(() => {
+    if (typeof window === 'undefined') return initialValue;
     try {
-      const item = window.localStorage.getItem(key);
-      return item ? JSON.parse(item) : initialValue;
-    } catch (error) {
-      console.error(`Error reading localStorage key “${key}”:`, error);
+      const raw = window.localStorage.getItem(key);
+      if (raw == null) return initialValue;
+
+      try {
+        return JSON.parse(raw) as T;
+      } catch {
+        // Backward/dirty data: try to coerce, then rewrite as clean JSON.
+        const coerced = coerceFromRaw<T>(raw, initialValue);
+        try {
+          window.localStorage.setItem(key, JSON.stringify(coerced));
+        } catch {}
+        console.warn(
+          `Repaired malformed localStorage key "${key}". Old value: ${raw}`
+        );
+        return coerced;
+      }
+    } catch {
       return initialValue;
     }
   });
-  
-  const setValue = useCallback((value: T | ((val: T) => T)) => {
-    try {
-      const valueToStore = value instanceof Function ? value(storedValue) : value;
-      setStoredValue(valueToStore);
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(key, JSON.stringify(valueToStore));
-        // Dispatch a custom event to notify other instances of this hook on the same page
-        window.dispatchEvent(new CustomEvent('local-storage-change', { detail: { key, value: valueToStore } }));
-      }
-    } catch (error) {
-      console.log(`Error setting localStorage key “${key}”:`, error);
-    }
-  }, [key, storedValue]);
 
   useEffect(() => {
-    const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === key && event.newValue) {
-        try {
-          setStoredValue(JSON.parse(event.newValue));
-        } catch (error) {
-          console.log(`Error parsing storage event value for key “${key}”:`, error);
-        }
-      }
-    };
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+  }, [key, value]);
 
-    const handleCustomEvent = (event: Event) => {
-        const { detail } = event as CustomEvent;
-        if (detail.key === key) {
-            setStoredValue(detail.value);
-        }
-    }
-    
-    window.addEventListener("storage", handleStorageChange);
-    window.addEventListener('local-storage-change', handleCustomEvent);
-    
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener('local-storage-change', handleCustomEvent);
-    };
-  }, [key]);
-
-  return [storedValue, setValue];
+  return [value, setValue] as const;
 }
-
-export default useLocalStorage;

@@ -31,7 +31,7 @@ export default function LoginPage() {
     <main className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-sm p-6 rounded-xl border bg-card shadow-sm space-y-6 text-center">
         <div className="flex justify-center">
-          <Image src="/CentseiLogo.png" alt="Centsei" width={140} height={46} />
+          <Image src="/CentseiLogo.png" alt="Centsei" width={140} height={46} style={{ height: 'auto' }} />
         </div>
 
         <h1 className="text-xl font-semibold">Welcome</h1>
