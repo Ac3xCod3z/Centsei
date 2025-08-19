@@ -3,7 +3,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { User, onAuthStateChanged, signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth';
-import { auth, googleProvider, firestore } from '@/lib/firebase';
+import { auth, googleProvider, firestore, firebaseEnabled } from '@/lib/firebase';
 import { CentseiLoader } from './centsei-loader';
 import type { Entry, Goal, Birthday } from '@/lib/types';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsGuest(guestMode);
     } catch {}
     
-    if (!auth) {
+    if (!firebaseEnabled || !auth) {
         setLoading(false);
         return;
     }
@@ -62,13 +62,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signInWithGoogle = async () => {
-    if (!auth || !googleProvider) {
-        console.error("Firebase not initialized for sign-in.");
+    if (!firebaseEnabled || !auth || !googleProvider) {
+        console.info('Sign-in skipped: Firebase not initialized (local-only mode).');
         return;
     }
     try {
       setLoading(true);
       await signInWithPopup(auth, googleProvider);
+       localStorage.removeItem("centsei_guest_mode");
+       setIsGuest(false);
     } catch (error) {
       console.error("Error during sign-in:", error);
       setLoading(false);
@@ -76,17 +78,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    if (!auth) {
-        console.error("Firebase not initialized for sign-out.");
-        return;
-    }
     try {
-      await firebaseSignOut(auth);
-      setIsGuest(false);
-      localStorage.removeItem("centsei_guest_mode");
-      setUser(null);
-    } catch (error) {
-      console.error("Error during sign-out:", error);
+      if (firebaseEnabled && auth) {
+        await firebaseSignOut(auth);
+      } else {
+        console.info('Sign-out: no Firebase initialized (local-only mode).');
+      }
+    } catch(error) {
+       console.error("Error during sign-out:", error);
+    } finally {
+        try {
+            localStorage.setItem("centsei_guest_mode", "true");
+        } catch {}
+        setIsGuest(true);
+        setUser(null);
     }
   };
 
