@@ -7,24 +7,23 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { CentseiLoader } from '@/components/centsei-loader';
-import { enableLocalMode, disableLocalMode } from '@/lib/local-mode';
 
 export default function LoginPage() {
-  const { user, signInWithGoogle, loading, continueAsGuest } = useAuth();
+  const { user, signInWithGoogle, loading, continueAsGuest, isGuest } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && user) {
+    if (!loading && (user || isGuest)) {
       router.replace('/');
     }
-  }, [user, loading, router]);
+  }, [user, isGuest, loading, router]);
   
   const handleUseWithoutAccount = () => {
     continueAsGuest();
     router.replace('/');
   }
 
-  if (loading || user) {
+  if (loading || user || isGuest) {
     return <CentseiLoader isAuthLoading />;
   }
   

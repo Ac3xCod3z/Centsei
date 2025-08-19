@@ -15,7 +15,6 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   continueAsGuest: () => void;
-  exitGuest: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -23,7 +22,6 @@ const AuthContext = createContext<AuthContextType>({
     loading: true,
     isGuest: false,
     continueAsGuest: () => {},
-    exitGuest: () => {},
     signInWithGoogle: async () => {},
     signOut: async () => {},
 });
@@ -32,45 +30,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isGuest, setIsGuest] = useState(false);
-  const [showMigrationDialog, setShowMigrationDialog] = useState(false);
-  const [localData, setLocalData] = useState<{ entries: Entry[], goals: Goal[], birthdays: Birthday[] } | null>(null);
 
   useEffect(() => {
     try {
-      setIsGuest(typeof window !== "undefined" && localStorage.getItem("centsei_guest") === "1");
+      const guestMode = localStorage.getItem("centsei_guest_mode") === "true";
+      setIsGuest(guestMode);
     } catch {}
-  }, []);
-
-  useEffect(() => {
+    
     if (!auth) {
         setLoading(false);
         return;
     }
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
-      if (user && firestore) {
-        const wasGuest = localStorage.getItem("centsei_guest") === "1";
-        if (wasGuest) {
-          const userDocRef = doc(firestore, 'users', user.uid);
-          const userDoc = await getDoc(userDocRef);
-
-          if (!userDoc.exists() || !userDoc.data()?.migration_done) {
-            if (!userDoc.exists()) {
-                await setDoc(userDocRef, { email: user.email, displayName: user.displayName, photoURL: user.photoURL, created_at: new Date() }, { merge: true });
-            }
-
-            const localEntries = JSON.parse(localStorage.getItem('centseiEntries') || '[]');
-            const localGoals = JSON.parse(localStorage.getItem('centseiGoals') || '[]');
-            const localBirthdays = JSON.parse(localStorage.getItem('centseiBirthdays') || '[]');
-            
-            if (localEntries.length > 0 || localGoals.length > 0 || localBirthdays.length > 0) {
-                setLocalData({ entries: localEntries, goals: localGoals, birthdays: localBirthdays });
-                setShowMigrationDialog(true);
-            } else {
-                exitGuest();
-            }
-          }
-        }
+      if (user) {
+        setIsGuest(false);
+        localStorage.removeItem("centsei_guest_mode");
       }
       setLoading(false);
     });
@@ -80,16 +56,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const continueAsGuest = () => {
     try {
-      localStorage.setItem("centsei_guest", "1");
+      localStorage.setItem("centsei_guest_mode", "true");
     } catch {}
     setIsGuest(true);
-  };
-
-  const exitGuest = () => {
-    try {
-      localStorage.removeItem("centsei_guest");
-    } catch {}
-    setIsGuest(false);
   };
 
   const signInWithGoogle = async () => {
@@ -100,8 +69,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setLoading(true);
       await signInWithPopup(auth, googleProvider);
-      // After sign-in, the onAuthStateChanged listener will handle the user state update
-      // and subsequent component re-renders.
     } catch (error) {
       console.error("Error during sign-in:", error);
       setLoading(false);
@@ -115,15 +82,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     try {
       await firebaseSignOut(auth);
-      exitGuest();
+      setIsGuest(false);
+      localStorage.removeItem("centsei_guest_mode");
       setUser(null);
     } catch (error) {
       console.error("Error during sign-out:", error);
     }
   };
 
-  const value = useMemo(() => ({ user, loading, isGuest, continueAsGuest, exitGuest, signInWithGoogle, signOut }), [user, loading, isGuest]);
-
+  const value = useMemo(() => ({ user, loading, isGuest, continueAsGuest, signInWithGoogle, signOut }), [user, loading, isGuest]);
 
   if (loading) {
       return <CentseiLoader isAuthLoading={true} />;

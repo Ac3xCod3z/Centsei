@@ -1,10 +1,10 @@
 // src/lib/firebase.ts
-import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
+import { initializeApp, getApps, getApp, type FirebaseApp, type FirebaseOptions } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 import { getAnalytics, type Analytics } from "firebase/analytics";
 
-const firebaseConfig = {
+const firebaseConfig: FirebaseOptions = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
@@ -37,10 +37,14 @@ if (hasConfig) {
         analytics = typeof window !== 'undefined' && firebaseConfig.measurementId ? getAnalytics(app) : null;
     } catch (e) {
         console.error("Failed to initialize Firebase", e);
+        app = null;
+        auth = null;
+        firestore = null;
+        googleProvider = null;
+        analytics = null;
     }
 } else {
-    console.warn("Firebase configuration is missing. Firebase services will be disabled.");
+    console.warn("Firebase configuration is missing. Firebase services will be disabled. App will run in local-only mode.");
 }
 
-// Ensure you export the potentially null values and handle them in your components.
 export { app, auth, firestore, googleProvider, analytics };
