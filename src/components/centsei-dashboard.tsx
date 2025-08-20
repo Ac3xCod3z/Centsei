@@ -28,6 +28,8 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { gsap } from "gsap";
+import { MotionPathPlugin } from "gsap/MotionPathPlugin";
 
 import { EntryDialog } from "./entry-dialog";
 import { SettingsDialog } from "./settings-dialog";
@@ -325,6 +327,7 @@ export default function CentseiDashboard() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
         jsConfettiRef.current = new JSConfetti();
+        gsap.registerPlugin(MotionPathPlugin);
     }
   }, []);
 

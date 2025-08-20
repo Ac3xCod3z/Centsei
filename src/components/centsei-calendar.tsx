@@ -23,8 +23,6 @@ import {
 } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { ChevronLeft, ChevronRight, Plus, Trash2, TrendingUp, TrendingDown, Repeat, Check, Trophy, ChevronDown, Cake, PartyPopper } from "lucide-react";
-import { gsap } from "gsap";
-import { MotionPathPlugin } from "gsap/MotionPathPlugin";
 
 
 import { Button } from "@/components/ui/button";
@@ -39,10 +37,6 @@ import { useMedia } from "react-use";
 import { getHolidaysForYear } from "@/lib/holidays";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
-
-if (typeof window !== "undefined") {
-    gsap.registerPlugin(MotionPathPlugin);
-}
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
