@@ -81,6 +81,7 @@ export const generateSeasonalForecast = (
     // 4. Adjust for birthdays in this period
     if (includeBirthdays) {
         birthdays.forEach(birthday => {
+            if (typeof birthday.date !== 'string' || !birthday.date.includes('-')) return;
             const [month, day] = birthday.date.split('-').map(Number);
             const birthdayDateThisYear = setYear(new Date(0, month - 1, day), periodStart.getFullYear());
             if (isWithinInterval(birthdayDateThisYear, { start: periodStart, end: periodEnd })) {
