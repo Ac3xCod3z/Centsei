@@ -6,7 +6,7 @@ import { useState, useEffect, useRef } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Sparkles, Loader2, Bell, BellOff, Share2, Check, Copy, Moon, Sun, Repeat, Download, Upload, Text, Smile, Cake, Calendar as CalendarIcon } from "lucide-react";
+import { Sparkles, Loader2, Bell, BellOff, Share2, Check, Copy, Moon, Sun, Repeat, Download, Upload, Text, Smile, Cake, Calendar as CalendarIcon, Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useAuth } from './auth-provider';
 import { add, format } from "date-fns";
@@ -49,8 +49,9 @@ import { ScrollArea } from "./ui/scroll-area";
 import useLocalStorage from "@/hooks/use-local-storage";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { getCalendarAccessToken } from "@/lib/calendar-auth";
-import { exportEntries, type CentseiEntryForCalendar } from "@/lib/google-calendar";
+import { exportEntries, createCentseiCalendar, deleteCentseiEvents, type CentseiEntryForCalendar } from "@/lib/google-calendar-helpers";
 import { parseDateInTimezone } from "@/lib/utils";
+import { generateIcsContent } from "@/lib/ics-generator";
 
 const formSchema = z.object({
   incomeLevel: z.coerce.number().positive({ message: "Income must be a positive number." }),
@@ -105,7 +106,9 @@ export function SettingsDialog({
   const [hasCopied, setHasCopied] = useState(false);
   const { setTheme, theme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [isCalendarLoading, setCalendarLoading] = useState(false);
+  const [centseiCalendarId, setCentseiCalendarId] = useLocalStorage<string | null>('centseiCalendarId', null);
 
   useEffect(() => {
     if (isOpen) {
@@ -117,68 +120,129 @@ export function SettingsDialog({
     }
   }, [isOpen]);
   
+  const getUpcomingOccurrences = (windowDays = 90): CentseiEntryForCalendar[] => {
+    const now = new Date();
+    const future = add(now, { days: windowDays });
+    
+    return entries.flatMap(entry => {
+        const occurrences: CentseiEntryForCalendar[] = [];
+        let currentDate = parseDateInTimezone(entry.date, timezone);
+        
+        if (entry.recurrence !== 'none') {
+            const interval = entry.recurrence === 'weekly' ? { weeks: 1 } :
+                             entry.recurrence === 'bi-weekly' ? { weeks: 2 } :
+                             entry.recurrence === 'monthly' ? { months: 1 } :
+                             entry.recurrence === 'bimonthly' ? { months: 2 } :
+                             entry.recurrence === '3months' ? { months: 3 } :
+                             entry.recurrence === '6months' ? { months: 6 } :
+                             { years: 1 };
+            
+            while (currentDate < now) {
+                currentDate = add(currentDate, interval);
+            }
+        }
+        
+        for (let i = 0; currentDate < future && i < 365; i++) {
+            const dateStr = format(currentDate, 'yyyy-MM-dd');
+            if (currentDate >= now) {
+                occurrences.push({
+                    id: getOriginalIdFromInstance(entry.id),
+                    name: entry.name,
+                    date: dateStr,
+                    recurrence: entry.recurrence,
+                    amount: entry.amount,
+                    note: `${entry.type === 'bill' ? 'Bill' : 'Income'}: ${format(entry.amount, 'C')}`
+                });
+            }
+            if (entry.recurrence === 'none') break;
+
+             const interval = entry.recurrence === 'weekly' ? { weeks: 1 } :
+                             entry.recurrence === 'bi-weekly' ? { weeks: 2 } :
+                             entry.recurrence === 'monthly' ? { months: 1 } :
+                             entry.recurrence === 'bimonthly' ? { months: 2 } :
+                             entry.recurrence === '3months' ? { months: 3 } :
+                             entry.recurrence === '6months' ? { months: 6 } :
+                             { years: 1 };
+            currentDate = add(currentDate, interval);
+        }
+        return occurrences;
+    });
+  };
+
   const handlePushToCalendar = async () => {
     setCalendarLoading(true);
-    const accessToken = await getCalendarAccessToken({ full: false });
+    const accessToken = await getCalendarAccessToken({ full: !!centseiCalendarId });
     if (!accessToken) {
-      toast({ title: "Connect Account", description: "Please sign in with Google to export to your calendar." });
+      // Guest mode or permission denied, fallback to ICS
+      try {
+        const occurrences = getUpcomingOccurrences();
+        const icsContent = generateIcsContent(occurrences, timezone);
+        const blob = new Blob([icsContent], { type: 'text/calendar' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'centsei_calendar.ics';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast({ title: "ICS File Downloaded", description: "Import this file into your calendar application." });
+      } catch (e) {
+        toast({ title: "Export Failed", description: "Could not generate ICS file.", variant: "destructive" });
+      }
       setCalendarLoading(false);
       return;
     }
 
     try {
-      const now = new Date();
-      const upcomingEntries = entries
-        .flatMap(entry => {
-          const occurrences = [];
-          let currentDate = parseDateInTimezone(entry.date, timezone);
-          if (entry.recurrence !== 'none') {
-            while (currentDate < now) {
-               // This is a simplification; a robust solution would use a recurrence library
-               if (entry.recurrence === 'monthly') currentDate = add(currentDate, { months: 1 });
-               else if (entry.recurrence === 'weekly') currentDate = add(currentDate, { weeks: 1 });
-               else break;
-            }
-          }
-          let instanceDate = currentDate;
-          for (let i = 0; i < 90; i++) { // Approx 3 months
-             const dateStr = format(instanceDate, 'yyyy-MM-dd');
-             if (instanceDate >= now && instanceDate <= add(now, {days: 90})) {
-                 occurrences.push({
-                   ...entry,
-                   id: getOriginalIdFromInstance(entry.id),
-                   name: entry.name,
-                   date: dateStr,
-                 });
-             }
-             if (entry.recurrence === 'monthly') instanceDate = add(instanceDate, { months: 1 });
-             else if (entry.recurrence === 'weekly') instanceDate = add(instanceDate, { weeks: 1 });
-             else break;
-          }
-
-          return occurrences;
-        })
-        .map(o => ({
-          id: o.id,
-          name: o.name,
-          date: o.date,
-          time: null, // All-day events
-          recurrence: o.recurrence,
-        }));
-        
+      const occurrences = getUpcomingOccurrences();
       await exportEntries(
         accessToken,
-        upcomingEntries,
-        { timezone }
+        occurrences,
+        { timezone, calendarId: centseiCalendarId || 'primary' }
       );
-
-      toast({ title: "Export Successful", description: "Your entries have been pushed to Google Calendar." });
+      toast({ title: "Export Successful", description: `Pushed ${occurrences.length} events to your calendar.` });
     } catch (error: any) {
         console.error("Calendar export failed:", error);
         toast({ title: "Export Failed", description: error.message || "Could not push events to Google Calendar.", variant: "destructive" });
     } finally {
         setCalendarLoading(false);
     }
+  };
+
+  const handleCreateCalendar = async () => {
+    setCalendarLoading(true);
+    try {
+        const accessToken = await getCalendarAccessToken({ full: true });
+        if (!accessToken) throw new Error("Could not get authorization.");
+        
+        const newCalendarId = await createCentseiCalendar(accessToken, timezone);
+        setCentseiCalendarId(newCalendarId);
+        toast({ title: "Calendar Created!", description: "A 'Centsei' calendar has been added to your Google account." });
+    } catch (error: any) {
+        toast({ title: "Creation Failed", description: error.message || "Could not create a dedicated calendar.", variant: "destructive" });
+    } finally {
+        setCalendarLoading(false);
+    }
+  };
+
+  const handleCleanCalendar = async () => {
+     setCalendarLoading(true);
+     try {
+        if (!centseiCalendarId) {
+            toast({ title: "No Calendar Found", description: "A dedicated Centsei calendar must be created first.", variant: "destructive" });
+            return;
+        }
+        const accessToken = await getCalendarAccessToken({ full: true });
+        if (!accessToken) throw new Error("Could not get authorization.");
+        
+        const count = await deleteCentseiEvents(accessToken, centseiCalendarId);
+        toast({ title: "Cleanup Successful", description: `Removed ${count} events from your Centsei calendar.` });
+     } catch (error: any) {
+        toast({ title: "Cleanup Failed", description: error.message || "Could not remove exported events.", variant: "destructive" });
+     } finally {
+        setCalendarLoading(false);
+     }
   };
 
 
@@ -351,11 +415,19 @@ export function SettingsDialog({
               
               <div className="space-y-2">
                   <h3 className="font-semibold">Google Calendar</h3>
-                   <p className="text-sm text-muted-foreground">Push your upcoming bills and income to your Google Calendar.</p>
+                   <p className="text-sm text-muted-foreground">Push your upcoming bills and income to your Google Calendar. Guests can download an .ics file.</p>
                    <Button onClick={handlePushToCalendar} variant="outline" className="w-full" disabled={isCalendarLoading}>
                       {isCalendarLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarIcon className="mr-2 h-4 w-4" />}
-                      {isCalendarLoading ? 'Pushing to Calendar...' : 'Push to Google Calendar'}
+                      {isCalendarLoading ? 'Pushing...' : 'Push to Calendar'}
                    </Button>
+                   <div className="grid grid-cols-2 gap-2">
+                        <Button onClick={handleCreateCalendar} variant="outline" disabled={isCalendarLoading || !!centseiCalendarId}>
+                            <Plus className="mr-2 h-4 w-4" /> Create Calendar
+                        </Button>
+                        <Button onClick={handleCleanCalendar} variant="destructive" disabled={isCalendarLoading || !centseiCalendarId}>
+                           <Trash2 className="mr-2 h-4 w-4" /> Clean Calendar
+                        </Button>
+                   </div>
               </div>
 
 
@@ -412,7 +484,7 @@ export function SettingsDialog({
                       disabled={notificationPermission === 'denied'}
                   >
                       {notificationsEnabled ? <BellOff className="mr-2 h-4 w-4" /> : <Bell className="mr-2 h-4 w-4" />}
-                      {notificationsEnabled ? 'Disable Notifications' : 'Disable Notifications'}
+                      {notificationsEnabled ? 'Disable Notifications' : 'Enable Notifications'}
                   </Button>
                   {notificationPermission === 'denied' && (
                       <p className="text-xs text-destructive text-center">You have blocked notifications. Please enable them in your browser settings.</p>
@@ -522,3 +594,4 @@ export function SettingsDialog({
     </Dialog>
   );
 }
+
