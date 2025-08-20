@@ -412,7 +412,7 @@ export function SettingsDialog({
                       disabled={notificationPermission === 'denied'}
                   >
                       {notificationsEnabled ? <BellOff className="mr-2 h-4 w-4" /> : <Bell className="mr-2 h-4 w-4" />}
-                      {notificationsEnabled ? 'Disable Notifications' : 'Enable Notifications'}
+                      {notificationsEnabled ? 'Disable Notifications' : 'Disable Notifications'}
                   </Button>
                   {notificationPermission === 'denied' && (
                       <p className="text-xs text-destructive text-center">You have blocked notifications. Please enable them in your browser settings.</p>
