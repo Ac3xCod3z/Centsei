@@ -48,7 +48,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(user);
       if (user) {
         setIsGuest(false);
-        localStorage.removeItem("centsei_guest_mode");
+        try {
+          localStorage.removeItem("centsei_guest_mode");
+        } catch {}
       }
       setLoading(false);
     });
@@ -61,6 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem("centsei_guest_mode", "true");
     } catch {}
     setIsGuest(true);
+    setUser(null);
   };
 
   const signInWithGoogle = async () => {
@@ -71,7 +74,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setLoading(true);
       await signInWithPopup(auth, googleProvider);
-       localStorage.removeItem("centsei_guest_mode");
+       try {
+        localStorage.removeItem("centsei_guest_mode");
+       } catch {}
        setIsGuest(false);
     } catch (error) {
       console.error("Error during sign-in:", error);
@@ -80,32 +85,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    if (isGuest) {
-      // If the user is a guest, signing out should take them to the login page.
+    try {
+      if (firebaseEnabled && auth.currentUser) {
+        await firebaseSignOut(auth);
+      }
+    } catch (error) {
+      console.error("Error during sign-out:", error);
+    } finally {
+      // For both guest and signed-in users, reset state and go to login.
+      setUser(null);
+      setIsGuest(false);
       try {
         localStorage.removeItem("centsei_guest_mode");
       } catch {}
-      setIsGuest(false);
-      setUser(null);
       router.push('/login');
-      return;
-    }
-
-    // If the user is logged in with Firebase, sign them out and transition to guest mode.
-    try {
-      if (firebaseEnabled && auth) {
-        await firebaseSignOut(auth);
-      } else {
-        console.info('Sign-out: no Firebase initialized (running in local-only mode).');
-      }
-    } catch(error) {
-       console.error("Error during sign-out:", error);
-    } finally {
-        try {
-            localStorage.setItem("centsei_guest_mode", "true");
-        } catch {}
-        setIsGuest(true);
-        setUser(null);
     }
   };
 
