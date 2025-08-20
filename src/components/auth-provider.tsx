@@ -7,6 +7,7 @@ import { auth, googleProvider, firestore, firebaseEnabled } from '@/lib/firebase
 import { CentseiLoader } from './centsei-loader';
 import type { Entry, Goal, Birthday } from '@/lib/types';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { useRouter } from 'next/navigation';
 
 interface AuthContextType {
   user: User | null;
@@ -30,6 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isGuest, setIsGuest] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     try {
@@ -78,11 +80,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    if (isGuest) {
+      // If the user is a guest, signing out should take them to the login page.
+      try {
+        localStorage.removeItem("centsei_guest_mode");
+      } catch {}
+      setIsGuest(false);
+      setUser(null);
+      router.push('/login');
+      return;
+    }
+
+    // If the user is logged in with Firebase, sign them out and transition to guest mode.
     try {
       if (firebaseEnabled && auth) {
         await firebaseSignOut(auth);
       } else {
-        console.info('Sign-out: no Firebase initialized (local-only mode).');
+        console.info('Sign-out: no Firebase initialized (running in local-only mode).');
       }
     } catch(error) {
        console.error("Error during sign-out:", error);
