@@ -1,12 +1,11 @@
 
-
 "use client";
 
 import { useState, useEffect, useRef } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Sparkles, Loader2, Bell, BellOff, Share2, Check, Copy, Moon, Sun, Repeat, Download, Upload, Text, Smile, Cake, Calendar as CalendarIcon, Trash2 } from "lucide-react";
+import { Sparkles, Loader2, Bell, BellOff, Share2, Check, Copy, Moon, Sun, Repeat, Download, Upload, Text, Smile, Cake, Calendar as CalendarIcon, Trash2, Plus } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useAuth } from './auth-provider';
 import { add, format } from "date-fns";
@@ -595,3 +594,4 @@ export function SettingsDialog({
   );
 }
 
+    
