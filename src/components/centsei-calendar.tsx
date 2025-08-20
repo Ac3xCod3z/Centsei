@@ -168,6 +168,7 @@ export function CentseiCalendar({
       
       const dayHolidays = holidays.filter(h => isSameDay(h.date, day));
       const dayBirthdays = birthdays.filter(b => {
+        if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
         const [bMonth, bDay] = b.date.split('-').map(Number);
         return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
       });
@@ -466,6 +467,7 @@ export function CentseiCalendar({
         setGlobalSelectedDate(day);
         const dayHolidays = holidays.filter(h => isSameDay(h.date, day));
         const dayBirthdays = birthdays.filter(b => {
+            if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
             const [bMonth, bDay] = b.date.split('-').map(Number);
             return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
         });
@@ -559,6 +561,7 @@ export function CentseiCalendar({
                   const dayStr = format(day, 'yyyy-MM-dd');
                   const dayHolidays = holidays.filter(h => isSameDay(h.date, day));
                   const dayBirthdays = birthdays.filter(b => {
+                      if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
                       const [bMonth, bDay] = b.date.split('-').map(Number);
                       return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
                   });

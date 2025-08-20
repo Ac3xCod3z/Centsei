@@ -779,6 +779,7 @@ export default function CentseiDashboard() {
     });
 
     birthdays.forEach(b => {
+        if (typeof b.date !== 'string' || !b.date.includes('-')) return;
         const [month, day] = b.date.split('-').map(Number);
         const bdate = set(now, {month: month-1, date: day});
         if(isWithinInterval(bdate, {start: now, end: next30Days})) {
@@ -962,8 +963,8 @@ export default function CentseiDashboard() {
         isOpen={isEntryDialogOpen}
         onClose={() => setEntryDialogOpen(false)}
         onSave={handleSaveEntry}
-        onDelete={handleDeleteEntry}
         onCopy={handleCopyEntry}
+        onDelete={handleDeleteEntry}
         entry={editingEntry}
         selectedDate={selectedDate}
         timezone={timezone}
@@ -991,6 +992,7 @@ export default function CentseiDashboard() {
         entries={allGeneratedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), selectedDate))}
         holidays={getHolidaysForYear(getYear(selectedDate)).filter(h => isSameDay(h.date, selectedDate))}
         birthdays={birthdays.filter(b => {
+             if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
              const [bMonth, bDay] = b.date.split('-').map(Number);
              return getMonth(selectedDate) + 1 === bMonth && selectedDate.getDate() === bDay;
         })}
