@@ -60,7 +60,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { scheduleNotificationsLocal, cancelAllNotificationsLocal } from "@/lib/notification-manager";
 import { useToast } from "@/hooks/use-toast";
 import { welcomeMessages } from "@/lib/messages";
-import { calculateBudgetScore } from "@/lib/budget-score";
+import { calculateBudgetScore, getRank } from "@/lib/budget-score";
 import { BudgetScoreInfoDialog } from "./budget-score-info-dialog";
 import { BudgetScoreHistoryDialog } from "./budget-score-history-dialog";
 import { getDojoRank } from "@/lib/dojo-journey";
@@ -840,12 +840,33 @@ export default function CentseiDashboard() {
           <div className="flex items-center gap-2">
             {!isMobile && (
               <>
-                <Button variant="ghost" onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Insights</Button>
-                <Button variant="ghost" onClick={() => setCalculatorOpen(true)}><Calculator className="mr-2 h-4 w-4" />Calculator</Button>
-                <Button variant="ghost" onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Goals</Button>
-                <Button variant="ghost" onClick={() => setMonthlySummaryOpen(true)}><PieChart className="mr-2 h-4 w-4" />Summary</Button>
-                <Button variant="ghost" onClick={() => setMonthlyBreakdownOpen(true)}><BarChartBig className="mr-2 h-4 w-4" />Breakdown</Button>
-                <Button variant="ghost" onClick={() => setSettingsDialogOpen(true)}><Settings className="mr-2 h-4 w-4"/>Settings</Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline">
+                      <Menu className="mr-2 h-4 w-4" /> Menu
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setMonthlySummaryOpen(true)}><PieChart className="mr-2 h-4 w-4" />Monthly Summary</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setMonthlyBreakdownOpen(true)}><BarChartBig className="mr-2 h-4 w-4" />Category Breakdown</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setScoreInfoOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setDojoInfoOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => senseiSays.showFavorites()}><Heart className="mr-2 h-4 w-4" />Favorite Mantras</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <Button variant="ghost" size="icon" onClick={() => setCalculatorOpen(true)}>
+                  <Calculator className="h-5 w-5" />
+                  <span className="sr-only">Calculator</span>
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => setSettingsDialogOpen(true)}>
+                  <Settings className="h-5 w-5" />
+                  <span className="sr-only">Settings</span>
+                </Button>
               </>
             )}
              <DropdownMenu>
@@ -862,12 +883,16 @@ export default function CentseiDashboard() {
                 <DropdownMenuSeparator />
                 {isMobile && (
                   <>
-                    <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Insights</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setCalculatorOpen(true)}><Calculator className="mr-2 h-4 w-4" />Calculator</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Goals</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setMonthlySummaryOpen(true)}><PieChart className="mr-2 h-4 w-4" />Summary</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setMonthlyBreakdownOpen(true)}><BarChartBig className="mr-2 h-4 w-4" />Breakdown</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setSettingsDialogOpen(true)}><Settings className="mr-2 h-4 w-4"/>Settings</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setMonthlySummaryOpen(true)}><PieChart className="mr-2 h-4 w-4" />Monthly Summary</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setMonthlyBreakdownOpen(true)}><BarChartBig className="mr-2 h-4 w-4" />Category Breakdown</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setScoreInfoOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setDojoInfoOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                     <DropdownMenuItem onClick={() => setCalculatorOpen(true)}><Calculator className="mr-2 h-4 w-4" />Calculator</DropdownMenuItem>
+                     <DropdownMenuItem onClick={() => setSettingsDialogOpen(true)}><Settings className="mr-2 h-4 w-4"/>Settings</DropdownMenuItem>
                     <DropdownMenuSeparator />
                   </>
                 )}
