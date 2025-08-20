@@ -63,7 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithGoogle = async () => {
     if (!firebaseEnabled || !auth || !googleProvider) {
-        console.info('Sign-in skipped: Firebase not initialized (local-only mode).');
+        console.info('Firebase not initialized for sign-in.');
         return;
     }
     try {
