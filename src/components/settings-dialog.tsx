@@ -6,9 +6,10 @@ import { useState, useEffect, useRef } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Sparkles, Loader2, Bell, BellOff, Share2, Check, Copy, Moon, Sun, Repeat, Download, Upload, Text, Smile, Cake } from "lucide-react";
+import { Sparkles, Loader2, Bell, BellOff, Share2, Check, Copy, Moon, Sun, Repeat, Download, Upload, Text, Smile, Cake, Calendar as CalendarIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useAuth } from './auth-provider';
+import { add, format } from "date-fns";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -47,6 +48,9 @@ import { timezones } from "@/lib/timezones";
 import { ScrollArea } from "./ui/scroll-area";
 import useLocalStorage from "@/hooks/use-local-storage";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
+import { getCalendarAccessToken } from "@/lib/calendar-auth";
+import { exportEntries, type CentseiEntryForCalendar } from "@/lib/google-calendar";
+import { parseDateInTimezone } from "@/lib/utils";
 
 const formSchema = z.object({
   incomeLevel: z.coerce.number().positive({ message: "Income must be a positive number." }),
@@ -69,6 +73,11 @@ type SettingsDialogProps = {
   birthdays: Birthday[];
   onBirthdaysChange: (birthdays: Birthday[]) => void;
 };
+
+function getOriginalIdFromInstance(key: string) {
+  const m = key.match(/^(.*)-(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? m[1] : key;
+}
 
 export function SettingsDialog({
   isOpen,
@@ -96,6 +105,7 @@ export function SettingsDialog({
   const [hasCopied, setHasCopied] = useState(false);
   const { setTheme, theme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isCalendarLoading, setCalendarLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -106,6 +116,71 @@ export function SettingsDialog({
         setHasCopied(false);
     }
   }, [isOpen]);
+  
+  const handlePushToCalendar = async () => {
+    setCalendarLoading(true);
+    const accessToken = await getCalendarAccessToken({ full: false });
+    if (!accessToken) {
+      toast({ title: "Connect Account", description: "Please sign in with Google to export to your calendar." });
+      setCalendarLoading(false);
+      return;
+    }
+
+    try {
+      const now = new Date();
+      const upcomingEntries = entries
+        .flatMap(entry => {
+          const occurrences = [];
+          let currentDate = parseDateInTimezone(entry.date, timezone);
+          if (entry.recurrence !== 'none') {
+            while (currentDate < now) {
+               // This is a simplification; a robust solution would use a recurrence library
+               if (entry.recurrence === 'monthly') currentDate = add(currentDate, { months: 1 });
+               else if (entry.recurrence === 'weekly') currentDate = add(currentDate, { weeks: 1 });
+               else break;
+            }
+          }
+          let instanceDate = currentDate;
+          for (let i = 0; i < 90; i++) { // Approx 3 months
+             const dateStr = format(instanceDate, 'yyyy-MM-dd');
+             if (instanceDate >= now && instanceDate <= add(now, {days: 90})) {
+                 occurrences.push({
+                   ...entry,
+                   id: getOriginalIdFromInstance(entry.id),
+                   name: entry.name,
+                   date: dateStr,
+                 });
+             }
+             if (entry.recurrence === 'monthly') instanceDate = add(instanceDate, { months: 1 });
+             else if (entry.recurrence === 'weekly') instanceDate = add(instanceDate, { weeks: 1 });
+             else break;
+          }
+
+          return occurrences;
+        })
+        .map(o => ({
+          id: o.id,
+          name: o.name,
+          date: o.date,
+          time: null, // All-day events
+          recurrence: o.recurrence,
+        }));
+        
+      await exportEntries(
+        accessToken,
+        upcomingEntries,
+        { timezone }
+      );
+
+      toast({ title: "Export Successful", description: "Your entries have been pushed to Google Calendar." });
+    } catch (error: any) {
+        console.error("Calendar export failed:", error);
+        toast({ title: "Export Failed", description: error.message || "Could not push events to Google Calendar.", variant: "destructive" });
+    } finally {
+        setCalendarLoading(false);
+    }
+  };
+
 
   const handleExportData = () => {
     try {
@@ -271,6 +346,18 @@ export function SettingsDialog({
                         <Cake className="mr-2 h-4 w-4" /> Manage Birthdays
                     </Button>
                </div>
+               
+              <Separator />
+              
+              <div className="space-y-2">
+                  <h3 className="font-semibold">Google Calendar</h3>
+                   <p className="text-sm text-muted-foreground">Push your upcoming bills and income to your Google Calendar.</p>
+                   <Button onClick={handlePushToCalendar} variant="outline" className="w-full" disabled={isCalendarLoading}>
+                      {isCalendarLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarIcon className="mr-2 h-4 w-4" />}
+                      {isCalendarLoading ? 'Pushing to Calendar...' : 'Push to Google Calendar'}
+                   </Button>
+              </div>
+
 
               <Separator />
               

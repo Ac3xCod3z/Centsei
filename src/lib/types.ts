@@ -1,4 +1,5 @@
 
+
 // src/lib/types.ts
 import { z } from 'zod';
 import { FieldValue } from 'firebase/firestore';
@@ -71,6 +72,10 @@ export const EntrySchema = z.object({
     isPaid: z.boolean().optional(),
     movedTo: z.string().optional(), // YYYY-MM-DD
     order: z.number().optional(),
+    name: z.string().optional(),
+    amount: z.number().optional(),
+    category: z.enum(BillCategories).optional(),
+    movedFrom: z.string().optional(),
   })).optional(),
   created_at: z.any().optional(),
   updated_at: z.any().optional(),

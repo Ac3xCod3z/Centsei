@@ -32,7 +32,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { Entry, CategoryDisplayPreference } from "@/lib/types";
+import type { Entry, CategoryDisplayPreference, BillCategory } from "@/lib/types";
 import { BillCategories, RecurrenceOptions, CategoryEmojis } from "@/lib/types";
 import { Checkbox } from "./ui/checkbox";
 import useLocalStorage from "@/hooks/use-local-storage";
@@ -82,9 +82,18 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
     if (isOpen) {
       // If we are copying (entry.id is empty), use the selected date from calendar
       const resetDate = entry && entry.id ? parseDateInTimezone(entry.date, timezone) : selectedDate;
-      const isInstancePaid = entry?.recurrence !== 'none'
-        ? entry?.exceptions?.[entry.date]?.isPaid ?? entry?.isPaid
-        : entry?.isPaid ?? false;
+      
+      const isInstance = entry?.id && entry.id.includes(entry.date);
+      const originalEntryDate = entry?.date;
+      
+      let isInstancePaid = false;
+      if (entry) {
+         if (entry.recurrence !== 'none' && originalEntryDate && entry.exceptions?.[originalEntryDate]) {
+            isInstancePaid = entry.exceptions[originalEntryDate].isPaid ?? entry.isPaid ?? false;
+         } else {
+            isInstancePaid = entry.isPaid ?? false;
+         }
+      }
 
       form.reset({
         type: entry?.type || "bill",
@@ -92,7 +101,7 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
         amount: entry?.amount || 0,
         date: resetDate,
         recurrence: entry?.recurrence || 'none',
-        category: entry?.category,
+        category: entry?.category as BillCategory | undefined,
         isPaid: entry && !entry.id ? false : isInstancePaid, // Not paid if it's a new copy
         isAutoPay: entry?.isAutoPay || false,
       });
