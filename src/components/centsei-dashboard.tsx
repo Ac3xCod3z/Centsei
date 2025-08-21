@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
@@ -84,176 +85,125 @@ import { useBlockMobileContextMenu } from "@/hooks/use-block-mobile-contextmenu"
 import { useBodyNoCalloutToggle } from "@/hooks/use-body-no-callout-toggle";
 
 const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezone: string): Entry[] => {
-    if (!entry.date) return [];
+  if (!entry.date) return [];
 
-    const nowInTimezone = toZonedTime(new Date(), timezone);
-    const todayInTimezone = set(nowInTimezone, { hours: 0, minutes: 0, seconds: 0, milliseconds: 0 });
-    
-    const instanceMap = new Map<string, Entry>();
+  const nowInTimezone = toZonedTime(new Date(), timezone);
+  const todayInTimezone = set(nowInTimezone, { hours: 0, minutes: 0, seconds: 0, milliseconds: 0 });
 
-    const createInstance = (date: Date, overridePaidStatus?: boolean): Entry => {
-        const dateStr = format(date, 'yyyy-MM-dd');
-        
-        const exception = entry.exceptions?.[dateStr];
-        
-        let isPaid = overridePaidStatus ?? false;
+  const instanceMap = new Map<string, Entry>();
+  const originalEntryDate = parseDateInTimezone(entry.date, timezone);
+  const recurrenceEndDate = entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null;
 
-        if (exception && typeof exception.isPaid === 'boolean') {
-            isPaid = exception.isPaid;
-        } else if (entry.recurrence === 'none') {
-            isPaid = entry.isPaid ?? false;
-        } else {
-            const isPast = isBefore(date, todayInTimezone);
-            const isToday = isSameDay(date, todayInTimezone);
-            const isAfter9AM = nowInTimezone.getHours() >= 9;
+  const createInstance = (date: Date, overridePaidStatus?: boolean): Entry => {
+    const dateStr = format(date, 'yyyy-MM-dd');
+    const exception = entry.exceptions?.[dateStr];
 
-            if (isPast) {
-                isPaid = entry.type === 'income' || !!entry.isAutoPay;
-            } else if (isToday && isAfter9AM) {
-                isPaid = entry.type === 'income' || !!entry.isAutoPay;
-            }
-        }
-        
-        const finalInstance = {
-            ...entry,
-            date: dateStr,
-            id: `${entry.id}-${dateStr}`,
-            isPaid,
-            order: exception?.order ?? entry.order,
-            name: exception?.name ?? entry.name,
-            amount: exception?.amount ?? entry.amount,
-            ...(exception?.category ? { category: exception.category } : {}),
-        };
+    let isPaid = overridePaidStatus ?? false;
 
-        return finalInstance;
-    };
-
-    const potentialDates: Date[] = [];
-    if (entry.recurrence === 'none') {
-        const entryDate = parseDateInTimezone(entry.date, timezone);
-        if (entryDate >= start && entryDate <= end) {
-            potentialDates.push(entryDate);
-        }
+    if (exception && typeof exception.isPaid === 'boolean') {
+      isPaid = exception.isPaid;
+    } else if (entry.recurrence === 'none') {
+      isPaid = entry.isPaid ?? false;
     } else {
-        const originalEntryDate = parseDateInTimezone(entry.date, timezone);
-        const recurrenceEndDate = entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null;
-        let occurrenceCount = 0;
-        
-        let currentDate = originalEntryDate;
+      const isPast = isBefore(date, todayInTimezone);
+      const isToday = isSameDay(date, todayInTimezone);
+      const isAfter9AM = nowInTimezone.getHours() >= 9;
 
-        // Fast-forward logic for all recurrence types
-        if (isBefore(currentDate, start)) {
-            if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
-                const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
-                const diffWeeks = Math.floor(differenceInCalendarMonths(start, currentDate) * 4.345); // Approx weeks
-                const numIntervals = Math.max(0, Math.floor(diffWeeks / weeksToAdd));
-                 if (numIntervals > 0) {
-                    currentDate = add(currentDate, { weeks: numIntervals * weeksToAdd });
-                    occurrenceCount += numIntervals;
-                }
-            } else {
-                 const recurrenceInterval = entry.recurrence ? (recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths] || 0) : 0;
-                if (recurrenceInterval > 0) {
-                    const monthsDiff = differenceInCalendarMonths(start, currentDate);
-                    const numIntervals = Math.max(0, Math.floor(monthsDiff / recurrenceInterval));
-                    if (numIntervals > 0) {
-                        currentDate = add(currentDate, { months: numIntervals * recurrenceInterval });
-                        occurrenceCount += numIntervals;
-                    }
-                }
-            }
-        }
-        
-        // Backtrack one step to ensure we don't miss the first valid date
-        if (isAfter(currentDate, start)) {
-             if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
-                 // No change needed for weekly, loop will handle it
-             } else {
-                 const recurrenceInterval = entry.recurrence ? (recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths] || 0) : 0;
-                if (recurrenceInterval > 0) {
-                     while(isAfter(currentDate, start)) {
-                         currentDate = add(currentDate, { months: -recurrenceInterval });
-                         occurrenceCount--;
-                     }
-                }
-             }
-        }
-
-
-        while (currentDate <= end) {
-           if (recurrenceEndDate && isAfter(currentDate, recurrenceEndDate)) break;
-           if (entry.recurrenceCount && occurrenceCount >= entry.recurrenceCount) break;
-
-          if (currentDate >= start) {
-            if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
-                potentialDates.push(currentDate);
-            } else {
-                const originalDay = getDate(originalEntryDate);
-                const lastDayInCurrentMonth = lastDayOfMonth(currentDate).getDate();
-                const dayForMonth = Math.min(originalDay, lastDayInCurrentMonth);
-                const finalDate = setDate(currentDate, dayForMonth);
-                if (finalDate <= end && finalDate >= start && isSameMonth(finalDate, currentDate)) {
-                  potentialDates.push(finalDate);
-                }
-            }
-          }
-          
-          if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
-              const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
-              currentDate = add(currentDate, { weeks: weeksToAdd });
-          } else {
-              const recurrenceInterval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
-              if(recurrenceInterval) {
-                currentDate = add(currentDate, { months: recurrenceInterval });
-              } else {
-                break;
-              }
-          }
-          occurrenceCount++;
-        }
+      if (isPast || (isToday && isAfter9AM)) {
+        isPaid = entry.type === 'income' || !!entry.isAutoPay;
+      }
     }
 
-    potentialDates.forEach(date => {
-        if (date >= start && date <= end) {
-            const dateStr = format(date, 'yyyy-MM-dd');
-            if (!instanceMap.has(dateStr)) {
-              const instance = createInstance(date, entry.exceptions?.[dateStr]?.isPaid);
-              instanceMap.set(dateStr, instance);
-            }
-        }
-    });
-
-    if (entry.exceptions) {
-        Object.entries(entry.exceptions).forEach(([dateStr, exception]) => {
-          if (!exception) return;
-          if (exception.movedFrom === 'deleted') {
-            instanceMap.delete(dateStr);
-            return;
-          }
-
-          const exceptionDate = parseDateInTimezone(dateStr, timezone);
-          if (exceptionDate >= start && exceptionDate <= end) {
-            const existingInstance = instanceMap.get(dateStr);
-            if (existingInstance) {
-              if (exception.isPaid !== undefined) existingInstance.isPaid = exception.isPaid;
-              if (exception.order !== undefined) existingInstance.order = exception.order;
-              if (exception.name) existingInstance.name = exception.name;
-              if (exception.amount) existingInstance.amount = exception.amount;
-            } else if (!exception.movedTo) { // Only add if it wasn't moved FROM here
-              instanceMap.set(dateStr, createInstance(exceptionDate, exception.isPaid));
-            }
-          }
+    return {
+      ...entry,
+      date: dateStr,
+      id: `${entry.id}-${dateStr}`,
+      isPaid,
+      order: exception?.order ?? entry.order,
+      name: exception?.name ?? entry.name,
+      amount: exception?.amount ?? entry.amount,
+      category: exception?.category ?? entry.category,
+    };
+  };
+  
+  if (entry.recurrence === 'none') {
+    if (isWithinInterval(originalEntryDate, { start, end })) {
+      const instance = createInstance(originalEntryDate, entry.isPaid);
+      instanceMap.set(entry.date, instance);
+    }
+  } else {
+    let currentDate = originalEntryDate;
+    let occurrenceCount = 0;
     
-          if (exception.movedTo) {
-            const movedToDate = parseDateInTimezone(exception.movedTo, timezone);
-            if (movedToDate >= start && movedToDate <= end && !instanceMap.has(exception.movedTo)) {
-               instanceMap.set(exception.movedTo, createInstance(movedToDate, exception.isPaid));
-            }
-          }
-        });
+    // Loop forward from the original start date
+    while (currentDate <= end) {
+      if (recurrenceEndDate && isAfter(currentDate, recurrenceEndDate)) break;
+      if (entry.recurrenceCount && occurrenceCount >= entry.recurrenceCount) break;
+
+      // Only add instances that fall within the visible calendar range
+      if (isWithinInterval(currentDate, { start, end })) {
+        const dateStr = format(currentDate, 'yyyy-MM-dd');
+        const instance = createInstance(currentDate);
+        instanceMap.set(dateStr, instance);
+      }
+      
+      // Stop generating if the next occurrence would be way past our view window
+      if (isAfter(currentDate, end) && occurrenceCount > 0) break;
+
+      occurrenceCount++;
+      
+      if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
+        const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
+        currentDate = add(currentDate, { weeks: weeksToAdd });
+      } else {
+        const recurrenceInterval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
+        if (recurrenceInterval) {
+          const nextMonthDate = add(originalEntryDate, { months: recurrenceInterval * occurrenceCount });
+          const originalDay = getDate(originalEntryDate);
+          const lastDayInNextMonth = lastDayOfMonth(nextMonthDate).getDate();
+          currentDate = setDate(nextMonthDate, Math.min(originalDay, lastDayInNextMonth));
+        } else {
+          break; // Should not happen with valid data
+        }
+      }
+    }
+  }
+
+  // Handle exceptions (moves, deletions, modifications)
+  if (entry.exceptions) {
+    Object.entries(entry.exceptions).forEach(([dateStr, exception]) => {
+      if (!exception) return;
+
+      // If an instance was moved FROM this date, remove it
+      if (exception.movedTo) {
+        instanceMap.delete(dateStr);
+      }
+      
+      // If an instance was deleted, remove it
+      if (exception.movedFrom === 'deleted') {
+        instanceMap.delete(dateStr);
+        return;
       }
 
-    return Array.from(instanceMap.values());
+      const exceptionDate = parseDateInTimezone(dateStr, timezone);
+      if (isWithinInterval(exceptionDate, { start, end })) {
+        const existingInstance = instanceMap.get(dateStr);
+        // If it's a modification of an existing instance
+        if (existingInstance) {
+          if (exception.isPaid !== undefined) existingInstance.isPaid = exception.isPaid;
+          if (exception.order !== undefined) existingInstance.order = exception.order;
+          if (exception.name) existingInstance.name = exception.name;
+          if (exception.amount) existingInstance.amount = exception.amount;
+        } 
+        // If it was moved TO this date, add it as a new instance
+        else if (exception.movedFrom && exception.movedFrom !== 'deleted') {
+          instanceMap.set(dateStr, createInstance(exceptionDate, exception.isPaid));
+        }
+      }
+    });
+  }
+
+  return Array.from(instanceMap.values());
 };
 
 function getOriginalIdFromInstance(key: string) {
@@ -813,7 +763,7 @@ export default function CentseiDashboard() {
   }
 
   const weeklyTotals = useMemo(() => {
-    const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
+    const weekStart = startOfWeek(selectedDate);
     const weekKey = format(weekStart, 'yyyy-MM-dd');
     
     const weekBalanceInfo = weeklyBalances[weekKey];
