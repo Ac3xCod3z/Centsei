@@ -643,7 +643,7 @@ export function CentseiCalendar({
                                     "p-1.5 rounded-full flex items-center justify-center shrink-0",
                                     entry.isPaid ? 'bg-muted-foreground/20 text-muted-foreground' : entry.type === 'bill' ? 'bg-destructive/20 text-destructive' : 'bg-emerald-500/20 text-emerald-500'
                                 )}>
-                                   {entry.isPaid ? <Check className="h-3 w-3" /> : entry.type === 'bill' ? <Image src="/bills.png" alt="Bill" width={14} height={14} /> : <Image src="/income.png" alt="Income" width={14} height={14} />}
+                                   {entry.isPaid ? <Check className="h-3 w-3" /> : entry.type === 'bill' ? <Image src="/bills.png" alt="Bill" width={14} height={14} draggable={false} /> : <Image src="/income.png" alt="Income" width={14} height={14} draggable={false} />}
                                 </div>
                                 <span className={cn("flex-1 truncate font-medium", entry.isPaid && "line-through", isMobile && 'hidden')}>{entry.name}</span>
                                 <span className={cn("font-semibold", entry.isPaid && "line-through")}>{formatCurrency(entry.amount)}</span>

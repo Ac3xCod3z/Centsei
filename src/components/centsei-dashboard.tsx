@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useMedia } from "react-use";
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import {
   collection,
   onSnapshot,
@@ -75,11 +75,11 @@ import { Separator } from "./ui/separator";
 import { getHolidaysForYear } from "@/lib/holidays";
 import { getForecastInsights } from "@/lib/forecast-insights";
 import SenseiSaysUI from "./sensei-says-ui";
-import { useSenseiSays } from "@/lib/sensei/useSenseiSays";
 import { useAuth } from './auth-provider';
 import { CentseiLoader } from "./centsei-loader";
 import useLocalStorage from "@/hooks/use-local-storage";
 import { parseDateInTimezone, stripUndefined } from "@/lib/utils";
+import { useSuppressContextMenu } from "@/hooks/use-suppress-contextmenu";
 
 const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezone: string): Entry[] => {
   if (!entry.date) return [];
@@ -256,6 +256,11 @@ function getOriginalIdFromInstance(key: string) {
 export default function CentseiDashboard() {
   const { user, isGuest, loading: authLoading, signOut } = useAuth();
   const router = useRouter();
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
+  const isCalendarRoute = pathname === "/" || pathname?.startsWith("/view");
+  useSuppressContextMenu(rootRef, isCalendarRoute);
 
   useEffect(() => {
     if (!authLoading && !user && !isGuest) {
@@ -859,7 +864,7 @@ export default function CentseiDashboard() {
 
   return (
     <>
-      <div className="flex h-screen w-full flex-col bg-background">
+      <div ref={rootRef} className="flex h-screen w-full flex-col bg-background no-callout">
         <header className="flex h-20 items-center justify-between border-b px-4 md:px-6 shrink-0">
           <div className="flex items-center gap-2">
             <Image src="/CentseiLogo.png" alt="Centsei Logo" width={80} height={26} />

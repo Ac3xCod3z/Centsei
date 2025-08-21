@@ -55,9 +55,6 @@
   }
   body {
     @apply bg-background text-foreground;
-     -webkit-user-select: none; /* Safari */
-    -ms-user-select: none; /* IE 10 and IE 11 */
-    user-select: none; /* Standard syntax */
   }
 }
 
@@ -75,6 +72,19 @@
 
   .animate-fade-in-up {
     animation: fade-in-up 0.5s ease-out forwards;
+  }
+  
+  .no-callout {
+    -webkit-touch-callout: none; /* iOS: suppress long-press callout */
+    -webkit-user-select: none;   /* iOS: avoid selection handles */
+    user-select: none;
+    /* Allow normal scrolling; don't block pans */
+    touch-action: pan-x pan-y;
+  }
+
+  .no-callout a,
+  .no-callout img {
+    -webkit-touch-callout: none;
   }
 }
 
