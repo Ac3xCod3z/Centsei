@@ -38,6 +38,7 @@ import { Checkbox } from "./ui/checkbox";
 import useLocalStorage from "@/hooks/use-local-storage";
 import { parseDateInTimezone } from "@/lib/utils";
 import { Separator } from "./ui/separator";
+import { Label } from "@/components/ui/label";
 
 
 const formSchema = z.object({
@@ -46,8 +47,8 @@ const formSchema = z.object({
   amount: z.coerce.number().positive({ message: "Amount must be a positive number." }),
   date: z.date({ required_error: "A date is required." }),
   recurrence: z.enum(RecurrenceOptions),
-  recurrenceEndDate: z.date().optional(),
-  recurrenceCount: z.coerce.number().optional(),
+  recurrenceEndDate: z.date().optional().nullable(),
+  recurrenceCount: z.coerce.number().optional().nullable(),
   category: z.enum(BillCategories).optional(),
   isPaid: z.boolean().optional(),
   isAutoPay: z.boolean().optional(),
