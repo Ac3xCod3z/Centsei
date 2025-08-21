@@ -3,7 +3,7 @@
 "use client";
 
 import { format } from "date-fns";
-import { Plus, Check, PartyPopper, Cake } from "lucide-react";
+import { Plus, Check, PartyPopper, Cake, GripVertical } from "lucide-react";
 import Image from 'next/image';
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +17,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Entry, Holiday, Birthday } from "@/lib/types";
 import { cn, formatCurrency } from "@/lib/utils";
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 
 type DayEntriesDialogProps = {
   isOpen: boolean;
@@ -28,6 +28,7 @@ type DayEntriesDialogProps = {
   birthdays: Birthday[];
   onAddEntry: () => void;
   onEditEntry: (entry: Entry) => void;
+  onReorder: (orderedEntries: Entry[]) => void;
 };
 
 export function DayEntriesDialog({
@@ -38,17 +39,104 @@ export function DayEntriesDialog({
   holidays,
   birthdays,
   onAddEntry,
-  onEditEntry
+  onEditEntry,
+  onReorder
 }: DayEntriesDialogProps) {
   
-  const sortedEntries = React.useMemo(() => 
-    [...entries].sort((a, b) => {
-        if (a.type === 'income' && b.type === 'bill') return -1;
-        if (a.type === 'bill' && b.type === 'income') return 1;
-        return a.name.localeCompare(b.name);
-    }), [entries]);
-    
-  const hasContent = sortedEntries.length > 0 || holidays.length > 0 || birthdays.length > 0;
+  const [orderedEntries, setOrderedEntries] = useState<Entry[]>([]);
+  const [draggingItem, setDraggingItem] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+        const sorted = [...entries].sort((a, b) => {
+             const aHasOrder = a.order !== undefined && a.order !== null;
+             const bHasOrder = b.order !== undefined && b.order !== null;
+
+             if (aHasOrder && !bHasOrder) return -1;
+             if (!aHasOrder && bHasOrder) return 1;
+             if (aHasOrder && bHasOrder) return a.order! - b.order!;
+
+             if (a.type === 'income' && b.type === 'bill') return -1;
+             if (a.type === 'bill' && b.type === 'income') return 1;
+             return b.amount - a.amount;
+        });
+        setOrderedEntries(sorted);
+    }
+  }, [entries, isOpen]);
+
+  const listRef = useRef<HTMLDivElement>(null);
+  
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, entryId: string) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', entryId);
+    setDraggingItem(entryId);
+  };
+  
+  const handleDragEnd = () => {
+    setDraggingItem(null);
+    listRef.current?.querySelectorAll('.drop-indicator').forEach(el => el.remove());
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      if (!draggingItem) return;
+      
+      const listContainer = listRef.current;
+      if (!listContainer) return;
+      
+      listContainer.querySelectorAll('.drop-indicator').forEach(el => el.remove());
+
+      const dropTarget = (e.target as HTMLElement).closest('[data-entry-id]');
+      const indicator = document.createElement('div');
+      indicator.className = 'drop-indicator h-1 bg-primary rounded-full my-1';
+
+      if (dropTarget) {
+          const rect = dropTarget.getBoundingClientRect();
+          const isAfter = e.clientY > rect.top + rect.height / 2;
+          if (isAfter) {
+            dropTarget.parentNode?.insertBefore(indicator, dropTarget.nextSibling);
+          } else {
+            dropTarget.parentNode?.insertBefore(indicator, dropTarget);
+          }
+      } else {
+          listContainer.appendChild(indicator);
+      }
+  };
+  
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const droppedItemId = e.dataTransfer.getData('text/plain');
+      if (!droppedItemId || !draggingItem) {
+          handleDragEnd();
+          return;
+      }
+
+      const dropTarget = (e.target as HTMLElement).closest('[data-entry-id]');
+      let newIndex = orderedEntries.length;
+
+      if(dropTarget) {
+          const dropTargetId = dropTarget.getAttribute('data-entry-id');
+          const dropTargetIndex = orderedEntries.findIndex(item => item.id === dropTargetId);
+          const rect = dropTarget.getBoundingClientRect();
+          const isAfter = e.clientY > rect.top + rect.height / 2;
+          newIndex = isAfter ? dropTargetIndex + 1 : dropTargetIndex;
+      }
+      
+      const itemToMove = orderedEntries.find(item => item.id === droppedItemId);
+      if (!itemToMove) {
+          handleDragEnd();
+          return;
+      }
+
+      const currentList = orderedEntries.filter(item => item.id !== droppedItemId);
+      currentList.splice(newIndex, 0, itemToMove);
+      
+      setOrderedEntries(currentList);
+      onReorder(currentList);
+      handleDragEnd();
+  };
+
+  const hasContent = orderedEntries.length > 0 || holidays.length > 0 || birthdays.length > 0;
 
   if (!isOpen) {
     return null;
@@ -60,12 +148,12 @@ export function DayEntriesDialog({
           <DialogHeader>
             <DialogTitle>Entries for {format(date, "MMMM d, yyyy")}</DialogTitle>
             <DialogDescription>
-              Review all bills, income, and events for the selected day.
+              Review all bills, income, and events for the selected day. Drag to reorder.
             </DialogDescription>
           </DialogHeader>
           <ScrollArea className="max-h-[60vh] pr-4">
               {hasContent ? (
-                  <div className="space-y-3">
+                  <div className="space-y-3" ref={listRef} onDragOver={handleDragOver} onDrop={handleDrop} onDragEnd={handleDragEnd}>
                       {holidays.map(holiday => (
                           <div key={holiday.name} className="flex items-center gap-3 p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
                               <div className="p-2 rounded-full flex items-center justify-center bg-purple-500/20 text-purple-600 dark:text-purple-400">
@@ -82,20 +170,28 @@ export function DayEntriesDialog({
                               <span className="font-semibold text-pink-600 dark:text-pink-400">Birthday: {bday.name}</span>
                           </div>
                       ))}
-                      {sortedEntries.map((entry) => (
+                      {orderedEntries.map((entry) => (
                           <div
                               key={entry.id}
+                              draggable
+                              data-entry-id={entry.id}
+                              onDragStart={(e) => handleDragStart(e, entry.id)}
                               className={cn(
-                                "flex items-center justify-between p-3 rounded-lg bg-card border cursor-pointer hover:bg-muted/50",
-                                entry.isPaid && "opacity-60"
+                                "flex items-center justify-between p-2 rounded-lg bg-card border group",
+                                entry.isPaid && "opacity-60",
+                                draggingItem === entry.id ? 'opacity-30' : 'opacity-100'
                               )}
-                              onClick={() => onEditEntry(entry)}
                           >
                               <div className="flex items-center gap-3">
-                                  <div className={cn(
-                                      "p-2 rounded-full flex items-center justify-center", 
+                                   <div className="cursor-grab p-1" onTouchStart={(e) => e.preventDefault()}>
+                                      <GripVertical className="h-5 w-5 text-muted-foreground" />
+                                   </div>
+                                  <div 
+                                      className={cn("p-2 rounded-full flex items-center justify-center", 
                                       entry.isPaid ? 'bg-muted-foreground/20' : entry.type === 'bill' ? 'bg-destructive/20' : 'bg-emerald-500/20'
-                                  )}>
+                                  )}
+                                    onClick={() => onEditEntry(entry)}
+                                  >
                                       {entry.isPaid ? (
                                         <Check className="h-5 w-5 text-muted-foreground" />
                                       ) : entry.type === 'bill' ? (
@@ -104,7 +200,7 @@ export function DayEntriesDialog({
                                           <Image src="/income.png" alt="Income" width={20} height={20} />
                                       )}
                                   </div>
-                                  <div className="flex flex-col">
+                                  <div className="flex flex-col cursor-pointer" onClick={() => onEditEntry(entry)}>
                                       <span className={cn("font-semibold", entry.isPaid && "line-through")}>{entry.name}</span>
                                       <span className={cn(
                                           "text-lg font-bold", 
