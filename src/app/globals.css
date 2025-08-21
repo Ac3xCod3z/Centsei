@@ -74,17 +74,24 @@
     animation: fade-in-up 0.5s ease-out forwards;
   }
   
-  .no-callout {
-    -webkit-touch-callout: none; /* iOS: suppress long-press callout */
-    -webkit-user-select: none;   /* iOS: avoid selection handles */
+  /* Toggle this class on <body> while calendar is shown */
+  body.centsei-no-callout,
+  body.centsei-no-callout [data-radix-portal] {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
     user-select: none;
-    /* Allow normal scrolling; don't block pans */
-    touch-action: pan-x pan-y;
   }
 
-  .no-callout a,
-  .no-callout img {
-    -webkit-touch-callout: none;
+  /* Images: prevent long-press drag/save intent */
+  body.centsei-no-callout img,
+  body.centsei-no-callout [data-radix-portal] img {
+    -webkit-user-drag: none;
+    user-drag: none;
+  }
+
+  /* Keep scrolling natural */
+  body.centsei-no-callout {
+    touch-action: pan-x pan-y;
   }
 }
 

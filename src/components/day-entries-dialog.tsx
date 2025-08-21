@@ -144,7 +144,11 @@ export function DayEntriesDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
+        <DialogContent 
+            className="sm:max-w-md" 
+            onInteractOutside={(e) => e.preventDefault()}
+            onContextMenu={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>Entries for {format(date, "MMMM d, yyyy")}</DialogTitle>
             <DialogDescription>
@@ -195,9 +199,9 @@ export function DayEntriesDialog({
                                       {entry.isPaid ? (
                                         <Check className="h-5 w-5 text-muted-foreground" />
                                       ) : entry.type === 'bill' ? (
-                                          <Image src="/bills.png" alt="Bill" width={20} height={20} />
+                                          <Image src="/bills.png" alt="Bill" width={20} height={20} draggable={false} />
                                       ) : (
-                                          <Image src="/income.png" alt="Income" width={20} height={20} />
+                                          <Image src="/income.png" alt="Income" width={20} height={20} draggable={false} />
                                       )}
                                   </div>
                                   <div className="flex flex-col cursor-pointer" onClick={() => onEditEntry(entry)}>
