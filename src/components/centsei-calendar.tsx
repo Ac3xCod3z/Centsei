@@ -586,6 +586,7 @@ export function CentseiCalendar({
                       onTouchStart={() => handleDayTouchStart(day, dayEntries)}
                       onTouchMove={clearLongPressTimeout}
                       onTouchEnd={clearLongPressTimeout}
+                      onContextMenu={(e) => e.preventDefault()}
                     >
                       <div className="flex justify-between items-start">
                         <div className="flex items-center gap-1.5">
@@ -627,6 +628,7 @@ export function CentseiCalendar({
                                   onTouchStart={(e) => handleTouchStart(e, entry)}
                                   onTouchMove={handleTouchMove}
                                   onTouchEnd={handleTouchEnd}
+                                  onContextMenu={(e) => e.preventDefault()}
                                   draggable={!isReadOnly && !isSelectionMode && !isMobile}
                                   className={cn(
                                       "px-2 py-1 rounded-full text-left flex items-center gap-2 transition-all duration-200 group",
