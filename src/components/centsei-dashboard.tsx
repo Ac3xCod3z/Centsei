@@ -57,7 +57,6 @@ import {
 import type { Entry, RolloverPreference, WeeklyBalances, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
 import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { scheduleNotificationsLocal, cancelAllNotificationsLocal } from "@/lib/notification-manager";
@@ -123,6 +122,7 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
       name: exception?.name ?? entry.name,
       amount: exception?.amount ?? entry.amount,
       category: exception?.category ?? entry.category,
+      isAutoPay: entry.isAutoPay,
     };
   };
   
@@ -133,21 +133,31 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
     }
   } else {
     let currentDate = originalEntryDate;
-    let occurrenceCount = 0;
+    if (isBefore(currentDate, start)) {
+      const diff = differenceInCalendarMonths(start, currentDate);
+      if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
+        const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
+        const diffWeeks = Math.floor(differenceInCalendarMonths(start, currentDate) * 4.345);
+        currentDate = add(currentDate, { weeks: Math.floor(diffWeeks / weeksToAdd) * weeksToAdd });
+      } else {
+        const interval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
+        if (interval) {
+          currentDate = add(currentDate, { months: Math.floor(diff / interval) * interval });
+        }
+      }
+    }
     
-    // Loop forward from the original start date
+    let occurrenceCount = 0;
     while (currentDate <= end) {
       if (recurrenceEndDate && isAfter(currentDate, recurrenceEndDate)) break;
       if (entry.recurrenceCount && occurrenceCount >= entry.recurrenceCount) break;
 
-      // Only add instances that fall within the visible calendar range
       if (isWithinInterval(currentDate, { start, end })) {
         const dateStr = format(currentDate, 'yyyy-MM-dd');
         const instance = createInstance(currentDate);
         instanceMap.set(dateStr, instance);
       }
       
-      // Stop generating if the next occurrence would be way past our view window
       if (isAfter(currentDate, end) && occurrenceCount > 0) break;
 
       occurrenceCount++;
@@ -163,23 +173,20 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
           const lastDayInNextMonth = lastDayOfMonth(nextMonthDate).getDate();
           currentDate = setDate(nextMonthDate, Math.min(originalDay, lastDayInNextMonth));
         } else {
-          break; // Should not happen with valid data
+          break; 
         }
       }
     }
   }
 
-  // Handle exceptions (moves, deletions, modifications)
   if (entry.exceptions) {
     Object.entries(entry.exceptions).forEach(([dateStr, exception]) => {
       if (!exception) return;
 
-      // If an instance was moved FROM this date, remove it
       if (exception.movedTo) {
         instanceMap.delete(dateStr);
       }
       
-      // If an instance was deleted, remove it
       if (exception.movedFrom === 'deleted') {
         instanceMap.delete(dateStr);
         return;
@@ -188,14 +195,12 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
       const exceptionDate = parseDateInTimezone(dateStr, timezone);
       if (isWithinInterval(exceptionDate, { start, end })) {
         const existingInstance = instanceMap.get(dateStr);
-        // If it's a modification of an existing instance
         if (existingInstance) {
           if (exception.isPaid !== undefined) existingInstance.isPaid = exception.isPaid;
           if (exception.order !== undefined) existingInstance.order = exception.order;
           if (exception.name) existingInstance.name = exception.name;
           if (exception.amount) existingInstance.amount = exception.amount;
         } 
-        // If it was moved TO this date, add it as a new instance
         else if (exception.movedFrom && exception.movedFrom !== 'deleted') {
           instanceMap.set(dateStr, createInstance(exceptionDate, exception.isPaid));
         }
@@ -205,6 +210,7 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
 
   return Array.from(instanceMap.values());
 };
+
 
 function getOriginalIdFromInstance(key: string) {
   const m = key.match(/^(.*)-(\d{4})-(\d{2})-(\d{2})$/);
@@ -884,11 +890,11 @@ export default function CentseiDashboard() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setMonthlySummaryOpen(true)}><PieChart className="mr-2 h-4 w-4" />Monthly Summary</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setMonthlyBreakdownOpen(true)}><BarChartBig className="mr-2 h-4 w-4" />Category Breakdown</DropdownMenuItem>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setScoreInfoOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setDojoInfoOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -920,11 +926,11 @@ export default function CentseiDashboard() {
                 <DropdownMenuSeparator />
                 {isMobile && (
                   <>
-                    <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setMonthlySummaryOpen(true)}><PieChart className="mr-2 h-4 w-4" />Monthly Summary</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setMonthlyBreakdownOpen(true)}><BarChartBig className="mr-2 h-4 w-4" />Category Breakdown</DropdownMenuItem>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setScoreInfoOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setDojoInfoOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -982,13 +988,6 @@ export default function CentseiDashboard() {
                     weeklyTotals={weeklyTotals}
                     selectedDate={selectedDate}
                   />
-                  <Separator className="my-4" />
-                  <div className="px-4 pb-4 space-y-4">
-                     {budgetScore && (
-                        <BudgetScoreWidget score={budgetScore} onInfoClick={() => setScoreInfoOpen(true)} onHistoryClick={() => setScoreHistoryOpen(true)} />
-                     )}
-                      <DojoJourneyWidget rank={dojoRank} onInfoClick={() => setDojoInfoOpen(true)} />
-                  </div>
               </ScrollArea>
             </SheetContent>
           </Sheet>
@@ -1122,3 +1121,5 @@ export default function CentseiDashboard() {
     </>
   );
 }
+
+    
