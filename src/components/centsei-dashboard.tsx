@@ -80,6 +80,7 @@ import { CentseiLoader } from "./centsei-loader";
 import useLocalStorage from "@/hooks/use-local-storage";
 import { parseDateInTimezone, stripUndefined } from "@/lib/utils";
 import { useSuppressContextMenu } from "@/hooks/use-suppress-contextmenu";
+import { useSenseiSays } from "@/lib/sensei/useSenseiSays";
 
 const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezone: string): Entry[] => {
   if (!entry.date) return [];
