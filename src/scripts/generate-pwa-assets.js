@@ -4,16 +4,6 @@ const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
 
-const svgIcon = `
-<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="512" height="512" fill="black"/>
-  <circle cx="256" cy="256" r="200" fill="white"/>
-  <path d="M106 140H156V110H356V140H406V160H106V140Z" fill="#D02F27"/>
-  <path d="M166 170H346V350H306V210H206V350H166V170Z" fill="#D02F27"/>
-  <path d="M136 360H376V400H136V360Z" fill="#D02F27"/>
-</svg>
-`;
-
 const SIZES = [
   { size: 512, name: 'icon-512x512.png', purpose: 'any' },
   { size: 192, name: 'icon-192x192.png', purpose: 'any' },
@@ -23,9 +13,15 @@ const SIZES = [
 ];
 
 const publicDir = path.join(process.cwd(), 'public');
+const sourceImagePath = path.join(publicDir, 'CentseiLogo.png');
 
 if (!fs.existsSync(publicDir)) {
   fs.mkdirSync(publicDir, { recursive: true });
+}
+
+if (!fs.existsSync(sourceImagePath)) {
+    console.error(`Error: Source image not found at ${sourceImagePath}`);
+    process.exit(1);
 }
 
 async function generate() {
@@ -33,7 +29,7 @@ async function generate() {
   
   for (const { size, name, purpose } of SIZES) {
     const outputPath = path.join(publicDir, name);
-    await sharp(Buffer.from(svgIcon))
+    await sharp(sourceImagePath)
       .resize(size, size)
       .toFile(outputPath);
       
