@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
@@ -55,7 +56,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Entry, RolloverPreference, WeeklyBalances, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
-import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -208,7 +209,7 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
   if (entry.exceptions) {
     Object.entries(entry.exceptions).forEach(([dateStr, exception]) => {
       // honor explicit removals
-      if (exception.movedFrom) {
+      if (exception && exception.movedFrom) {
         instanceMap.delete(dateStr);
         return;
       }
@@ -235,7 +236,7 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
         }
       }
 
-      if (exception.movedTo) {
+      if (exception && exception.movedTo) {
         const movedToDate = parseDateInTimezone(exception.movedTo, timezone);
         if (movedToDate >= start && movedToDate <= end && !instanceMap.has(exception.movedTo)) {
            instanceMap.set(exception.movedTo, {
