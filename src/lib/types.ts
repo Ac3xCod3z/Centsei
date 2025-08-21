@@ -1,5 +1,3 @@
-
-
 // src/lib/types.ts
 import { z } from 'zod';
 import { FieldValue } from 'firebase/firestore';
@@ -64,6 +62,8 @@ export const EntrySchema = z.object({
   amount: z.number(),
   type: z.enum(['bill', 'income']),
   recurrence: z.enum(RecurrenceOptions),
+  recurrenceEndDate: z.string().optional(),
+  recurrenceCount: z.number().optional(),
   category: z.enum(BillCategories).optional(),
   order: z.number().optional(),
   isPaid: z.boolean().optional(),

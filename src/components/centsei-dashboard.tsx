@@ -132,45 +132,76 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
     if (entryDate >= start && entryDate <= end) potentialDates.push(entryDate);
   } else {
     const originalEntryDate = parseDateInTimezone(entry.date, timezone);
-    const recurrenceInterval = entry.recurrence ? recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths] : 0;
+    const recurrenceEndDate = entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null;
+    let occurrenceCount = 0;
 
-    if (recurrenceInterval > 0) {
-      let currentDate = originalEntryDate;
+    let currentDate = originalEntryDate;
 
-      if (isBefore(currentDate, start)) {
+    // Fast-forward to the start of the view window
+    if (isBefore(currentDate, start)) {
+      const recurrenceInterval = entry.recurrence ? (recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths] || 0) : 0;
+      if (recurrenceInterval > 0) {
         const monthsDiff = differenceInCalendarMonths(start, currentDate);
         const numIntervals = Math.max(0, Math.floor(monthsDiff / recurrenceInterval));
-        if (numIntervals > 0) currentDate = add(currentDate, { months: numIntervals * recurrenceInterval });
-      }
-      while (isBefore(currentDate, start)) currentDate = add(currentDate, { months: recurrenceInterval });
-
-      while (currentDate <= end) {
-        const originalDay = getDate(originalEntryDate);
-        const lastDayInCurrentMonth = lastDayOfMonth(currentDate).getDate();
-        const dayForMonth = Math.min(originalDay, lastDayInCurrentMonth);
-        const finalDate = setDate(currentDate, dayForMonth);
-
-        if (finalDate >= start && finalDate <= end && isSameMonth(finalDate, currentDate)) {
-          potentialDates.push(finalDate);
+        if (numIntervals > 0) {
+            currentDate = add(currentDate, { months: numIntervals * recurrenceInterval });
+            occurrenceCount += numIntervals;
         }
-        currentDate = add(currentDate, { months: recurrenceInterval });
+      } else if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
+          const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
+          while (isBefore(currentDate, start)) {
+              currentDate = add(currentDate, { weeks: weeksToAdd });
+              occurrenceCount++;
+          }
       }
-    } else if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
-      const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
-      let currentDate = originalEntryDate;
-      while (isBefore(currentDate, start)) currentDate = add(currentDate, { weeks: weeksToAdd });
-      while (currentDate <= end) {
-        if (currentDate >= start) potentialDates.push(currentDate);
-        currentDate = add(currentDate, { weeks: weeksToAdd });
+    }
+     while (isBefore(currentDate, start)) {
+        const weeksToAdd = entry.recurrence === 'weekly' ? 1 : (entry.recurrence === 'bi-weekly' ? 2 : 0);
+        if (weeksToAdd > 0) {
+            currentDate = add(currentDate, { weeks: weeksToAdd });
+        } else {
+            const monthsToAdd = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
+            currentDate = add(currentDate, { months: monthsToAdd });
+        }
+        occurrenceCount++;
+    }
+
+
+    while (currentDate <= end) {
+       if (recurrenceEndDate && isAfter(currentDate, recurrenceEndDate)) break;
+       if (entry.recurrenceCount && occurrenceCount >= entry.recurrenceCount) break;
+
+      if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
+          potentialDates.push(currentDate);
+          const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
+          currentDate = add(currentDate, { weeks: weeksToAdd });
+      } else {
+          const recurrenceInterval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
+          if(recurrenceInterval) {
+            const originalDay = getDate(originalEntryDate);
+            const lastDayInCurrentMonth = lastDayOfMonth(currentDate).getDate();
+            const dayForMonth = Math.min(originalDay, lastDayInCurrentMonth);
+            const finalDate = setDate(currentDate, dayForMonth);
+             if (finalDate <= end && isSameMonth(finalDate, currentDate)) {
+              potentialDates.push(finalDate);
+            }
+            currentDate = add(currentDate, { months: recurrenceInterval });
+          } else {
+            // Should not happen if recurrence is not 'none'
+            break;
+          }
       }
+      occurrenceCount++;
     }
   }
 
   potentialDates.forEach(date => {
-    const dateStr = format(date, 'yyyy-MM-dd');
-    if (!instanceMap.has(dateStr)) {
-      const instance = createInstance(date, entry.exceptions?.[dateStr]?.isPaid);
-      instanceMap.set(dateStr, instance);
+    if (date >= start && date <= end) {
+        const dateStr = format(date, 'yyyy-MM-dd');
+        if (!instanceMap.has(dateStr)) {
+          const instance = createInstance(date, entry.exceptions?.[dateStr]?.isPaid);
+          instanceMap.set(dateStr, instance);
+        }
     }
   });
 

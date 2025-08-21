@@ -2,7 +2,7 @@
 
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -37,6 +37,7 @@ import { BillCategories, RecurrenceOptions, CategoryEmojis } from "@/lib/types";
 import { Checkbox } from "./ui/checkbox";
 import useLocalStorage from "@/hooks/use-local-storage";
 import { parseDateInTimezone } from "@/lib/utils";
+import { Separator } from "./ui/separator";
 
 
 const formSchema = z.object({
@@ -45,6 +46,8 @@ const formSchema = z.object({
   amount: z.coerce.number().positive({ message: "Amount must be a positive number." }),
   date: z.date({ required_error: "A date is required." }),
   recurrence: z.enum(RecurrenceOptions),
+  recurrenceEndDate: z.date().optional(),
+  recurrenceCount: z.coerce.number().optional(),
   category: z.enum(BillCategories).optional(),
   isPaid: z.boolean().optional(),
   isAutoPay: z.boolean().optional(),
@@ -70,12 +73,14 @@ function getOriginalIdFromInstance(key: string) {
 
 export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, selectedDate, timezone }: EntryFormProps) {
   const [categoryDisplay] = useLocalStorage<CategoryDisplayPreference>('centseiCategoryDisplay', 'text');
+  const [recurrenceEndType, setRecurrenceEndType] = useState<'never' | 'on' | 'after'>('never');
   
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
   });
   
   const entryType = form.watch("type");
+  const recurrenceType = form.watch("recurrence");
   const isAutoPay = form.watch("isAutoPay");
 
    React.useEffect(() => {
@@ -101,16 +106,26 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
         amount: entry?.amount || 0,
         date: resetDate,
         recurrence: entry?.recurrence || 'none',
+        recurrenceEndDate: entry?.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : undefined,
+        recurrenceCount: entry?.recurrenceCount || undefined,
         category: entry?.category as BillCategory | undefined,
         isPaid: entry && !entry.id ? false : isInstancePaid, // Not paid if it's a new copy
         isAutoPay: entry?.isAutoPay || false,
       });
+
+      if (entry?.recurrenceEndDate) {
+        setRecurrenceEndType('on');
+      } else if (entry?.recurrenceCount) {
+        setRecurrenceEndType('after');
+      } else {
+        setRecurrenceEndType('never');
+      }
     }
   }, [isOpen, selectedDate, entry, timezone, form]);
 
 
   function onSubmit(values: z.infer<typeof formSchema>) {
-    const dataToSave = {
+    const dataToSave: any = {
       ...values,
       originalDate: entry?.date, // Pass the specific date of the instance being edited
     };
@@ -118,6 +133,16 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
     if (values.type !== 'bill') {
       dataToSave.category = undefined;
       dataToSave.isAutoPay = undefined;
+    }
+
+    if (recurrenceEndType === 'never') {
+      dataToSave.recurrenceEndDate = undefined;
+      dataToSave.recurrenceCount = undefined;
+    } else if (recurrenceEndType === 'on') {
+      dataToSave.recurrenceCount = undefined;
+      dataToSave.recurrenceEndDate = values.recurrenceEndDate ? format(values.recurrenceEndDate, 'yyyy-MM-dd') : undefined;
+    } else if (recurrenceEndType === 'after') {
+      dataToSave.recurrenceEndDate = undefined;
     }
 
     if (entry && entry.id) {
@@ -317,6 +342,68 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
                     </FormItem>
                 )}
                 />
+                
+                {recurrenceType && recurrenceType !== 'none' && (
+                    <div className="space-y-4 rounded-md border p-4">
+                        <h4 className="text-sm font-medium">End Recurrence</h4>
+                        <RadioGroup value={recurrenceEndType} onValueChange={(value) => setRecurrenceEndType(value as 'never' | 'on' | 'after')}>
+                             <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="never" id="r-never" />
+                                <Label htmlFor="r-never">Never</Label>
+                            </div>
+                             <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="on" id="r-on" />
+                                <Label htmlFor="r-on">On date</Label>
+                            </div>
+                            {recurrenceEndType === 'on' && (
+                                <FormField
+                                    control={form.control}
+                                    name="recurrenceEndDate"
+                                    render={({ field }) => (
+                                        <FormItem className="pl-6 pt-2">
+                                            <Popover>
+                                                <PopoverTrigger asChild>
+                                                <FormControl>
+                                                    <Button
+                                                    variant={"outline"}
+                                                    className={cn("w-full pl-3 text-left font-normal",!field.value && "text-muted-foreground")}>
+                                                    {field.value ? (format(field.value, "PPP")) : (<span>Pick a date</span>)}
+                                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                    </Button>
+                                                </FormControl>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-auto p-0" align="start">
+                                                <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus/>
+                                                </PopoverContent>
+                                            </Popover>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            )}
+                             <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="after" id="r-after" />
+                                <Label htmlFor="r-after">After</Label>
+                            </div>
+                             {recurrenceEndType === 'after' && (
+                                <FormField
+                                    control={form.control}
+                                    name="recurrenceCount"
+                                    render={({ field }) => (
+                                        <FormItem className="pl-6 pt-2 flex items-center gap-2">
+                                             <FormControl>
+                                                <Input type="number" className="w-20" placeholder="12" {...field} />
+                                             </FormControl>
+                                             <Label>occurrences</Label>
+                                            <FormMessage className="ml-4"/>
+                                        </FormItem>
+                                    )}
+                                />
+                            )}
+                        </RadioGroup>
+                    </div>
+                )}
+
 
                 {entryType === 'bill' && (
                   <FormField
