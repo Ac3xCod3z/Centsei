@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
@@ -139,32 +138,17 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
                     if (exception.isPaid !== undefined) existingInstance.isPaid = exception.isPaid;
                     if (exception.order !== undefined) existingInstance.order = exception.order;
                     if (exception.name) existingInstance.name = exception.name;
-                    if (exception.amount) existingInstance.amount = exception.amount;
+                    if (exception.amount) existingInstance.amount;
                     if (exception.category) existingInstance.category = exception.category as BillCategory;
                 } else {
-                     instanceMap.set(dateStr, {
-                        ...entry,
-                        date: dateStr,
-                        id: `${entry.id}-${dateStr}`,
-                        isPaid: exception.isPaid ?? false,
-                        order: exception.order ?? entry.order,
-                    });
+                     instanceMap.set(dateStr, createInstance(exceptionDate, exception.isPaid));
                 }
              }
 
              if (exception.movedTo) {
                 const movedToDate = parseDateInTimezone(exception.movedTo, timezone);
                 if (movedToDate >= start && movedToDate <= end && !instanceMap.has(exception.movedTo)) {
-                    instanceMap.set(exception.movedTo, {
-                        ...entry,
-                        id: `${entry.id}-${exception.movedTo}`,
-                        date: exception.movedTo,
-                        isPaid: exception.isPaid ?? false,
-                        order: exception.order ?? entry.order,
-                        name:   exception.name   ?? entry.name,
-                        amount: exception.amount ?? entry.amount,
-                        ...(exception.category ? { category: exception.category } : {})
-                    });
+                    instanceMap.set(exception.movedTo, createInstance(movedToDate, exception.isPaid));
                 }
              }
         });
@@ -364,3 +348,5 @@ export default function ViewOnlyCalendar() {
     </div>
   );
 }
+
+    

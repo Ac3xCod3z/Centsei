@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
@@ -233,32 +232,14 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
           if (exception.name) existingInstance.name = exception.name;
           if (exception.amount) existingInstance.amount = exception.amount;
         } else {
-          instanceMap.set(dateStr, {
-            ...entry,
-            date: dateStr,
-            id: `${entry.id}-${dateStr}`,
-            isPaid: exception.isPaid ?? false,
-            order: exception.order ?? entry.order,
-            name: exception.name ?? entry.name,
-            amount: exception.amount ?? entry.amount,
-            ...(exception.category ? { category: exception.category } : {}),
-          });
+          instanceMap.set(dateStr, createInstance(exceptionDate, exception.isPaid));
         }
       }
 
       if (exception.movedTo) {
         const movedToDate = parseDateInTimezone(exception.movedTo, timezone);
         if (movedToDate >= start && movedToDate <= end && !instanceMap.has(exception.movedTo)) {
-           instanceMap.set(exception.movedTo, {
-            ...entry,
-            id: `${entry.id}-${exception.movedTo}`,
-            date: exception.movedTo,
-            isPaid: exception.isPaid ?? false,
-            order: exception.order ?? entry.order,
-            name:   exception.name   ?? entry.name,
-            amount: exception.amount ?? entry.amount,
-            ...(exception.category ? { category: exception.category } : {})
-          });
+           instanceMap.set(exception.movedTo, createInstance(movedToDate, exception.isPaid));
         }
       }
     });
@@ -1130,3 +1111,5 @@ export default function CentseiDashboard() {
     </>
   );
 }
+
+    
