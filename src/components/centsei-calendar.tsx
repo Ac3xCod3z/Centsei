@@ -451,22 +451,26 @@ export function CentseiCalendar({
   };
   
   // Handlers for mobile day long press
-  const handleDayTouchStart = (day: Date) => {
+  const handleDayTouchStart = (day: Date, dayEntries: Entry[]) => {
     if (!isMobile || isReadOnly) return;
     
     clearLongPressTimeout();
     
     longPressTimeoutRef.current = setTimeout(() => {
-        setSelectedDate(day);
-        setGlobalSelectedDate(day);
         const dayHolidays = holidays.filter(h => isSameDay(h.date, day));
         const dayBirthdays = birthdays.filter(b => {
             if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
             const [bMonth, bDay] = b.date.split('-').map(Number);
             return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
         });
-        openDayEntriesDialog(dayHolidays, dayBirthdays);
-        if (navigator.vibrate) navigator.vibrate(50);
+
+        // Only open the dialog if there's something to see
+        if (dayEntries.length > 0 || dayHolidays.length > 0 || dayBirthdays.length > 0) {
+            setSelectedDate(day);
+            setGlobalSelectedDate(day);
+            openDayEntriesDialog(dayHolidays, dayBirthdays);
+            if (navigator.vibrate) navigator.vibrate(50);
+        }
     }, 500);
   }
 
@@ -579,7 +583,7 @@ export function CentseiCalendar({
                       onClick={() => handleDayClick(day, dayEntries)}
                       onDragOver={handleDragOver}
                       onDrop={handleDrop}
-                      onTouchStart={() => handleDayTouchStart(day)}
+                      onTouchStart={() => handleDayTouchStart(day, dayEntries)}
                       onTouchMove={clearLongPressTimeout}
                       onTouchEnd={clearLongPressTimeout}
                     >
