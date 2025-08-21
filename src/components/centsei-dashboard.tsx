@@ -81,7 +81,6 @@ import { useAuth } from './auth-provider';
 import { CentseiLoader } from "./centsei-loader";
 import useLocalStorage from "@/hooks/use-local-storage";
 import { parseDateInTimezone, stripUndefined } from "@/lib/utils";
-import { MigrationDialog } from './migration-dialog';
 
 const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezone: string): Entry[] => {
   if (!entry.date) return [];
@@ -138,25 +137,31 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
 
     let currentDate = originalEntryDate;
 
-    // Fast-forward to the start of the view window
+    // Fast-forward logic for all recurrence types
     if (isBefore(currentDate, start)) {
-      const recurrenceInterval = entry.recurrence ? (recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths] || 0) : 0;
-      if (recurrenceInterval > 0) {
-        const monthsDiff = differenceInCalendarMonths(start, currentDate);
-        const numIntervals = Math.max(0, Math.floor(monthsDiff / recurrenceInterval));
-        if (numIntervals > 0) {
-            currentDate = add(currentDate, { months: numIntervals * recurrenceInterval });
-            occurrenceCount += numIntervals;
+        if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
+            const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
+            const diffWeeks = Math.floor(differenceInCalendarMonths(start, currentDate) * 4.345); // Approx weeks
+            const numIntervals = Math.max(0, Math.floor(diffWeeks / weeksToAdd));
+             if (numIntervals > 0) {
+                currentDate = add(currentDate, { weeks: numIntervals * weeksToAdd });
+                occurrenceCount += numIntervals;
+            }
+        } else {
+             const recurrenceInterval = entry.recurrence ? (recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths] || 0) : 0;
+            if (recurrenceInterval > 0) {
+                const monthsDiff = differenceInCalendarMonths(start, currentDate);
+                const numIntervals = Math.max(0, Math.floor(monthsDiff / recurrenceInterval));
+                if (numIntervals > 0) {
+                    currentDate = add(currentDate, { months: numIntervals * recurrenceInterval });
+                    occurrenceCount += numIntervals;
+                }
+            }
         }
-      } else if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
-          const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
-          while (isBefore(currentDate, start)) {
-              currentDate = add(currentDate, { weeks: weeksToAdd });
-              occurrenceCount++;
-          }
-      }
     }
-     while (isBefore(currentDate, start)) {
+     
+    // Backtrack one step to ensure we don't miss the first valid date
+    while (isBefore(currentDate, start)) {
         const weeksToAdd = entry.recurrence === 'weekly' ? 1 : (entry.recurrence === 'bi-weekly' ? 2 : 0);
         if (weeksToAdd > 0) {
             currentDate = add(currentDate, { weeks: weeksToAdd });
@@ -172,23 +177,28 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
        if (recurrenceEndDate && isAfter(currentDate, recurrenceEndDate)) break;
        if (entry.recurrenceCount && occurrenceCount >= entry.recurrenceCount) break;
 
+      if (currentDate >= start) {
+        if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
+            potentialDates.push(currentDate);
+        } else {
+            const originalDay = getDate(originalEntryDate);
+            const lastDayInCurrentMonth = lastDayOfMonth(currentDate).getDate();
+            const dayForMonth = Math.min(originalDay, lastDayInCurrentMonth);
+            const finalDate = setDate(currentDate, dayForMonth);
+            if (finalDate <= end && finalDate >= start && isSameMonth(finalDate, currentDate)) {
+              potentialDates.push(finalDate);
+            }
+        }
+      }
+      
       if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
-          potentialDates.push(currentDate);
           const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
           currentDate = add(currentDate, { weeks: weeksToAdd });
       } else {
           const recurrenceInterval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
           if(recurrenceInterval) {
-            const originalDay = getDate(originalEntryDate);
-            const lastDayInCurrentMonth = lastDayOfMonth(currentDate).getDate();
-            const dayForMonth = Math.min(originalDay, lastDayInCurrentMonth);
-            const finalDate = setDate(currentDate, dayForMonth);
-             if (finalDate <= end && isSameMonth(finalDate, currentDate)) {
-              potentialDates.push(finalDate);
-            }
             currentDate = add(currentDate, { months: recurrenceInterval });
           } else {
-            // Should not happen if recurrence is not 'none'
             break;
           }
       }
@@ -208,8 +218,8 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
 
   if (entry.exceptions) {
     Object.entries(entry.exceptions).forEach(([dateStr, exception]) => {
-      // honor explicit removals
-      if (exception && exception.movedFrom) {
+      if (!exception) return;
+      if (exception.movedFrom) {
         instanceMap.delete(dateStr);
         return;
       }
@@ -236,7 +246,7 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
         }
       }
 
-      if (exception && exception.movedTo) {
+      if (exception.movedTo) {
         const movedToDate = parseDateInTimezone(exception.movedTo, timezone);
         if (movedToDate >= start && movedToDate <= end && !instanceMap.has(exception.movedTo)) {
            instanceMap.set(exception.movedTo, {
