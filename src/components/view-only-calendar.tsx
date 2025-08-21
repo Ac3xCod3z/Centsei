@@ -6,14 +6,13 @@ import React, { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useMedia } from "react-use";
 import Image from 'next/image';
-import { toZonedTime } from 'date-fns-tz';
 
 import type { Entry, RolloverPreference, WeeklyBalances, Birthday, Holiday, BillCategory } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
-import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDay, add, setDate, getDate, startOfWeek, endOfWeek, eachWeekOfInterval, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, isWithinInterval, isAfter } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDay, add, setDate, getDate, startOfWeek, endOfWeek, eachWeekOfInterval, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, isWithinInterval, isAfter, max } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -31,11 +30,11 @@ type SharedData = {
 const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezone: string): Entry[] => {
   if (!entry.date) return [];
 
-  const nowInTimezone = toZonedTime(new Date(), timezone);
-  const todayInTimezone = set(nowInTimezone, { hours: 0, minutes: 0, seconds: 0, milliseconds: 0 });
-
   const instanceMap = new Map<string, Entry>();
-  const originalEntryDate = parseDateInTimezone(entry.date, timezone);
+  
+  const anchorDate = parseDateInTimezone(entry.date, timezone);
+  const floorDate = max([anchorDate, start]);
+  
   const recurrenceEndDate = entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null;
 
   const createInstance = (date: Date, overridePaidStatus?: boolean): Entry => {
@@ -49,13 +48,8 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
     } else if (entry.recurrence === 'none') {
       isPaid = entry.isPaid ?? false;
     } else {
-      const isPast = isBefore(date, todayInTimezone);
-      const isToday = isSameDay(date, todayInTimezone);
-      const isAfter9AM = nowInTimezone.getHours() >= 9;
-
-      if (isPast || (isToday && isAfter9AM)) {
-        isPaid = entry.type === 'income' || !!entry.isAutoPay;
-      }
+      const isPast = isBefore(date, startOfMonth(new Date()));
+      isPaid = isPast ? (entry.type === 'income' || !!entry.isAutoPay) : false;
     }
 
     return {
@@ -67,33 +61,46 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
       name: exception?.name ?? entry.name,
       amount: exception?.amount ?? entry.amount,
       category: exception?.category ?? entry.category,
+      isAutoPay: entry.isAutoPay,
     };
   };
   
   if (entry.recurrence === 'none') {
-    if (isWithinInterval(originalEntryDate, { start, end })) {
-      const instance = createInstance(originalEntryDate, entry.isPaid);
+    if (isWithinInterval(anchorDate, { start, end })) {
+      const instance = createInstance(anchorDate, entry.isPaid);
       instanceMap.set(entry.date, instance);
     }
   } else {
-    let currentDate = originalEntryDate;
-    let occurrenceCount = 0;
+    let currentDate = anchorDate;
     
-    // Loop forward from the original start date
-    while (currentDate <= end) {
+    // Fast-forward to the first relevant date
+    if (isBefore(currentDate, floorDate)) {
+        if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
+            const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
+            const diffWeeks = Math.floor((floorDate.getTime() - currentDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+            const weeksToJump = Math.ceil(diffWeeks / weeksToAdd) * weeksToAdd;
+            currentDate = add(currentDate, { weeks: weeksToJump });
+        } else {
+            const interval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
+            if (interval) {
+                const diffMonths = differenceInCalendarMonths(floorDate, currentDate);
+                const monthsToJump = Math.ceil(diffMonths / interval) * interval;
+                currentDate = add(currentDate, { months: monthsToJump });
+            }
+        }
+    }
+    
+    let occurrenceCount = 0;
+    while (isBefore(currentDate, end) || isSameDay(currentDate, end)) {
       if (recurrenceEndDate && isAfter(currentDate, recurrenceEndDate)) break;
       if (entry.recurrenceCount && occurrenceCount >= entry.recurrenceCount) break;
 
-      // Only add instances that fall within the visible calendar range
       if (isWithinInterval(currentDate, { start, end })) {
         const dateStr = format(currentDate, 'yyyy-MM-dd');
         const instance = createInstance(currentDate);
         instanceMap.set(dateStr, instance);
       }
       
-      // Stop generating if the next occurrence would be way past our view window
-      if (isAfter(currentDate, end) && occurrenceCount > 0) break;
-
       occurrenceCount++;
       
       if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
@@ -102,12 +109,12 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
       } else {
         const recurrenceInterval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
         if (recurrenceInterval) {
-          const nextMonthDate = add(originalEntryDate, { months: recurrenceInterval * occurrenceCount });
-          const originalDay = getDate(originalEntryDate);
+          const nextMonthDate = add(anchorDate, { months: recurrenceInterval * occurrenceCount });
+          const originalDay = getDate(anchorDate);
           const lastDayInNextMonth = lastDayOfMonth(nextMonthDate).getDate();
           currentDate = setDate(nextMonthDate, Math.min(originalDay, lastDayInNextMonth));
         } else {
-          break; // Should not happen with valid data
+          break; 
         }
       }
     }

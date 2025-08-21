@@ -56,7 +56,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Entry, RolloverPreference, WeeklyBalances, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
-import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { scheduleNotificationsLocal, cancelAllNotificationsLocal } from "@/lib/notification-manager";
@@ -86,11 +86,11 @@ import { useBodyNoCalloutToggle } from "@/hooks/use-body-no-callout-toggle";
 const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezone: string): Entry[] => {
   if (!entry.date) return [];
 
-  const nowInTimezone = toZonedTime(new Date(), timezone);
-  const todayInTimezone = set(nowInTimezone, { hours: 0, minutes: 0, seconds: 0, milliseconds: 0 });
-
   const instanceMap = new Map<string, Entry>();
-  const originalEntryDate = parseDateInTimezone(entry.date, timezone);
+  
+  const anchorDate = parseDateInTimezone(entry.date, timezone);
+  const floorDate = max([anchorDate, start]);
+  
   const recurrenceEndDate = entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null;
 
   const createInstance = (date: Date, overridePaidStatus?: boolean): Entry => {
@@ -104,13 +104,8 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
     } else if (entry.recurrence === 'none') {
       isPaid = entry.isPaid ?? false;
     } else {
-      const isPast = isBefore(date, todayInTimezone);
-      const isToday = isSameDay(date, todayInTimezone);
-      const isAfter9AM = nowInTimezone.getHours() >= 9;
-
-      if (isPast || (isToday && isAfter9AM)) {
-        isPaid = entry.type === 'income' || !!entry.isAutoPay;
-      }
+      const isPast = isBefore(date, startOfMonth(new Date()));
+      isPaid = isPast ? (entry.type === 'income' || !!entry.isAutoPay) : false;
     }
 
     return {
@@ -127,28 +122,32 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
   };
   
   if (entry.recurrence === 'none') {
-    if (isWithinInterval(originalEntryDate, { start, end })) {
-      const instance = createInstance(originalEntryDate, entry.isPaid);
+    if (isWithinInterval(anchorDate, { start, end })) {
+      const instance = createInstance(anchorDate, entry.isPaid);
       instanceMap.set(entry.date, instance);
     }
   } else {
-    let currentDate = originalEntryDate;
-    if (isBefore(currentDate, start)) {
-      const diff = differenceInCalendarMonths(start, currentDate);
-      if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
-        const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
-        const diffWeeks = Math.floor(differenceInCalendarMonths(start, currentDate) * 4.345);
-        currentDate = add(currentDate, { weeks: Math.floor(diffWeeks / weeksToAdd) * weeksToAdd });
-      } else {
-        const interval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
-        if (interval) {
-          currentDate = add(currentDate, { months: Math.floor(diff / interval) * interval });
+    let currentDate = anchorDate;
+    
+    // Fast-forward to the first relevant date
+    if (isBefore(currentDate, floorDate)) {
+        if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
+            const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
+            const diffWeeks = Math.floor((floorDate.getTime() - currentDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+            const weeksToJump = Math.ceil(diffWeeks / weeksToAdd) * weeksToAdd;
+            currentDate = add(currentDate, { weeks: weeksToJump });
+        } else {
+            const interval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
+            if (interval) {
+                const diffMonths = differenceInCalendarMonths(floorDate, currentDate);
+                const monthsToJump = Math.ceil(diffMonths / interval) * interval;
+                currentDate = add(currentDate, { months: monthsToJump });
+            }
         }
-      }
     }
     
     let occurrenceCount = 0;
-    while (currentDate <= end) {
+    while (isBefore(currentDate, end) || isSameDay(currentDate, end)) {
       if (recurrenceEndDate && isAfter(currentDate, recurrenceEndDate)) break;
       if (entry.recurrenceCount && occurrenceCount >= entry.recurrenceCount) break;
 
@@ -158,8 +157,6 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
         instanceMap.set(dateStr, instance);
       }
       
-      if (isAfter(currentDate, end) && occurrenceCount > 0) break;
-
       occurrenceCount++;
       
       if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
@@ -168,8 +165,8 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
       } else {
         const recurrenceInterval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
         if (recurrenceInterval) {
-          const nextMonthDate = add(originalEntryDate, { months: recurrenceInterval * occurrenceCount });
-          const originalDay = getDate(originalEntryDate);
+          const nextMonthDate = add(anchorDate, { months: recurrenceInterval * occurrenceCount });
+          const originalDay = getDate(anchorDate);
           const lastDayInNextMonth = lastDayOfMonth(nextMonthDate).getDate();
           currentDate = setDate(nextMonthDate, Math.min(originalDay, lastDayInNextMonth));
         } else {
@@ -379,7 +376,7 @@ export default function CentseiDashboard() {
     if (JSON.stringify(newWeeklyBalances) !== JSON.stringify(weeklyBalances)) {
         setWeeklyBalances(newWeeklyBalances);
     }
-  }, [allGeneratedEntries, rolloverPreference, timezone]);
+  }, [allGeneratedEntries, rolloverPreference, timezone, weeklyBalances]);
 
   const handleNotificationsToggle = (enabled: boolean) => {
     setNotificationsEnabled(enabled);
