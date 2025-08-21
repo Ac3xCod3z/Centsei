@@ -4,7 +4,7 @@
   "description": "Your personal finance sensei",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f8f4ef",
+  "background_color": "#000000",
   "theme_color": "#d02f27",
   "icons": [
     {
