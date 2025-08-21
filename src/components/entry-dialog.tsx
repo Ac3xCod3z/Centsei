@@ -85,33 +85,48 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
 
    React.useEffect(() => {
     if (isOpen) {
-      // If we are copying (entry.id is empty), use the selected date from calendar
-      const resetDate = entry && entry.id ? parseDateInTimezone(entry.date, timezone) : selectedDate;
-      
+      const isNew = !entry;
+      const isCopy = entry && !entry.id;
       const isInstance = entry?.id && entry.id.includes(entry.date);
-      const originalEntryDate = entry?.date;
       
-      let isInstancePaid = false;
-      if (entry) {
-         if (entry.recurrence !== 'none' && originalEntryDate && entry.exceptions?.[originalEntryDate]) {
-            isInstancePaid = entry.exceptions[originalEntryDate].isPaid ?? entry.isPaid ?? false;
-         } else {
-            isInstancePaid = entry.isPaid ?? false;
-         }
-      }
+      let initialValues = {
+        type: "bill",
+        name: "",
+        amount: 0,
+        date: selectedDate,
+        recurrence: 'none',
+        recurrenceEndDate: undefined,
+        recurrenceCount: undefined,
+        category: undefined,
+        isPaid: false,
+        isAutoPay: false,
+      };
 
-      form.reset({
-        type: entry?.type || "bill",
-        name: entry?.name || "",
-        amount: entry?.amount || 0,
-        date: resetDate,
-        recurrence: entry?.recurrence || 'none',
-        recurrenceEndDate: entry?.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : undefined,
-        recurrenceCount: entry?.recurrenceCount || undefined,
-        category: entry?.category as BillCategory | undefined,
-        isPaid: entry && !entry.id ? false : isInstancePaid, // Not paid if it's a new copy
-        isAutoPay: entry?.isAutoPay || false,
-      });
+      if (entry) {
+        let isPaidStatus = entry.isPaid ?? false;
+        if (isInstance) {
+           const exception = entry.exceptions?.[entry.date];
+           if (exception?.isPaid !== undefined) {
+             isPaidStatus = exception.isPaid;
+           }
+        }
+
+        initialValues = {
+            ...initialValues,
+            type: entry.type || "bill",
+            name: entry.name || "",
+            amount: entry.amount || 0,
+            date: isCopy ? selectedDate : parseDateInTimezone(entry.date, timezone),
+            recurrence: entry.recurrence || 'none',
+            recurrenceEndDate: entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : undefined,
+            recurrenceCount: entry.recurrenceCount || undefined,
+            category: entry.category as BillCategory | undefined,
+            isPaid: isCopy ? false : isPaidStatus,
+            isAutoPay: entry.isAutoPay || false,
+        };
+      }
+      
+      form.reset(initialValues);
 
       if (entry?.recurrenceEndDate) {
         setRecurrenceEndType('on');
@@ -121,7 +136,7 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
         setRecurrenceEndType('never');
       }
     }
-  }, [isOpen, selectedDate, entry, timezone, form]);
+  }, [isOpen, entry, selectedDate, timezone, form]);
 
 
   function onSubmit(values: z.infer<typeof formSchema>) {
