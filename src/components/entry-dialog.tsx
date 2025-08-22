@@ -148,7 +148,6 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
     
     if (values.type !== 'bill') {
       dataToSave.category = undefined;
-      dataToSave.isAutoPay = undefined;
     }
 
     if (recurrenceEndType === 'never') {
@@ -421,7 +420,7 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
                 )}
 
 
-                {entryType === 'bill' && (
+                {entryType && (
                   <FormField
                     control={form.control}
                     name="isAutoPay"
@@ -435,7 +434,7 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
                         </FormControl>
                         <div className="space-y-1 leading-none">
                           <FormLabel>
-                            Set up as Auto-Pay
+                            Set up as Auto-{entryType === 'bill' ? 'Pay' : 'Deposit'}
                           </FormLabel>
                         </div>
                       </FormItem>

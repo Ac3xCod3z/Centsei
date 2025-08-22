@@ -107,7 +107,9 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
     } else if (entry.recurrence === 'none') {
       isPaid = entry.isPaid ?? false;
     } else {
-      isPaid = !!(entry.isAutoPay && entry.type === 'bill' && isPastOrToday);
+        const isAutoBill = entry.isAutoPay && entry.type === 'bill';
+        const isAutoIncome = entry.isAutoPay && entry.type === 'income';
+        isPaid = !!((isAutoBill || isAutoIncome) && isPastOrToday);
     }
 
     return {
