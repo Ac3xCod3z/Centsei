@@ -21,6 +21,7 @@ import {
   setYear,
   setMonth,
   getMonth,
+  startOfDay,
 } from "date-fns";
 import { ChevronLeft, ChevronRight, Plus, Trash2, TrendingUp, TrendingDown, Repeat, Check, Trophy, ChevronDown, Cake, PartyPopper } from "lucide-react";
 
@@ -29,13 +30,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn, formatCurrency, parseDateInTimezone } from "@/lib/utils";
-import type { Entry, WeeklyBalances, SelectedInstance, Birthday, Holiday } from "@/lib/types";
+import type { Entry, WeeklyBalances, SelectedInstance, Birthday, Holiday, BudgetScore, DojoRank, Goal } from "@/lib/types";
 import { Checkbox } from "./ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { useMedia } from "react-use";
 import { getHolidaysForYear } from "@/lib/holidays";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import { BudgetScoreWidget } from "./budget-score-widget";
+import { DojoJourneyWidget } from "./dojo-journey-widget";
+import { Separator } from "./ui/separator";
 
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -66,6 +70,12 @@ type CentseiCalendarProps = {
     onBulkDelete: () => void;
     onMoveRequest: (entry: Entry, newDate: string) => void;
     birthdays: Birthday[];
+    budgetScore: BudgetScore | null;
+    dojoRank: DojoRank;
+    goals: Goal[];
+    onScoreInfoClick: () => void;
+    onScoreHistoryClick: () => void;
+    onDojoInfoClick: () => void;
 }
 
 export function CentseiCalendar({
@@ -87,7 +97,13 @@ export function CentseiCalendar({
     setSelectedInstances,
     onBulkDelete,
     onMoveRequest,
-    birthdays
+    birthdays,
+    budgetScore,
+    dojoRank,
+    goals,
+    onScoreInfoClick,
+    onScoreHistoryClick,
+    onDojoInfoClick,
 }: CentseiCalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -478,6 +494,12 @@ export function CentseiCalendar({
     <SidebarContent 
       weeklyTotals={weeklyTotals}
       selectedDate={selectedDate}
+      budgetScore={budgetScore}
+      dojoRank={dojoRank}
+      goals={goals}
+      onScoreInfoClick={onScoreInfoClick}
+      onScoreHistoryClick={onScoreHistoryClick}
+      onDojoInfoClick={onDojoInfoClick}
     />
   )
 
@@ -686,9 +708,21 @@ function SummaryCard({ title, amount, icon, description, variant = 'default', cl
 export const SidebarContent = ({
   weeklyTotals,
   selectedDate,
+  budgetScore,
+  dojoRank,
+  goals,
+  onScoreInfoClick,
+  onScoreHistoryClick,
+  onDojoInfoClick,
 }: {
   weeklyTotals: any;
   selectedDate: Date;
+  budgetScore: BudgetScore | null;
+  dojoRank: DojoRank;
+  goals: Goal[];
+  onScoreInfoClick: () => void;
+  onScoreHistoryClick: () => void;
+  onDojoInfoClick: () => void;
 }) => {
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
@@ -705,6 +739,24 @@ export const SidebarContent = ({
               description={weeklyTotals.status >= 0 ? 'Surplus for the week' : 'Deficit for the week'}
             />
             <SummaryCard title="End of Week Balance" amount={weeklyTotals.net} variant={weeklyTotals.net >= 0 ? 'positive' : 'negative'} />
+        </div>
+
+        {(budgetScore || goals.length > 0) && <Separator />}
+
+        <div className="space-y-4">
+            {budgetScore && (
+              <BudgetScoreWidget 
+                score={budgetScore} 
+                onInfoClick={onScoreInfoClick} 
+                onHistoryClick={onScoreHistoryClick} 
+              />
+            )}
+            {goals.length > 0 && (
+              <DojoJourneyWidget 
+                rank={dojoRank} 
+                onInfoClick={onDojoInfoClick} 
+              />
+            )}
         </div>
     </div>
   );
