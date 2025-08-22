@@ -12,7 +12,7 @@ import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
-import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDay, add, setDate, getDate, startOfWeek, endOfWeek, eachWeekOfInterval, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, isWithinInterval, isAfter, max } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDay, add, setDate, getDate, startOfWeek, endOfWeek, eachWeekOfInterval, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, isWithinInterval, isAfter, max, startOfDay } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -32,8 +32,8 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
 
   const instanceMap = new Map<string, Entry>();
   
-  const anchorDate = parseDateInTimezone(entry.date, timezone);
-  const floorDate = max([anchorDate, start]);
+  const anchorDate = startOfDay(parseDateInTimezone(entry.date, timezone));
+  const floorDate = max([anchorDate, startOfDay(start)]);
   
   const recurrenceEndDate = entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null;
 
@@ -41,8 +41,8 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
     const dateStr = format(date, 'yyyy-MM-dd');
     const exception = entry.exceptions?.[dateStr];
 
-    const today = parseDateInTimezone(format(new Date(), 'yyyy-MM-dd'), timezone);
-    const instanceDate = parseDateInTimezone(dateStr, timezone);
+    const today = startOfDay(new Date());
+    const instanceDate = startOfDay(date);
     const isPastOrToday = !isAfter(instanceDate, today);
 
     let isPaid = false;
@@ -51,9 +51,8 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
     } else if (entry.recurrence === 'none') {
       isPaid = entry.isPaid ?? false;
     } else {
-        const isAutoBill = entry.isAutoPay && entry.type === 'bill';
-        const isAutoIncome = entry.isAutoPay && entry.type === 'income';
-        isPaid = !!((isAutoBill || isAutoIncome) && isPastOrToday);
+        const isAuto = entry.isAutoPay;
+        isPaid = !!(isAuto && isPastOrToday);
     }
 
     return {
@@ -320,6 +319,12 @@ export default function ViewOnlyCalendar() {
                   <SidebarContent
                     weeklyTotals={weeklyTotals}
                     selectedDate={selectedDate}
+                    budgetScore={null}
+                    dojoRank={{ level: 0, name: 'No Rank', belt: { name: 'None', color: '' }, stripes: 0, nextMilestone: 0, nextRankName: '', progress: 0, balanceToNext: 0 }}
+                    goals={[]}
+                    onScoreInfoClick={() => {}}
+                    onScoreHistoryClick={() => {}}
+                    onDojoInfoClick={() => {}}
                   />
               </ScrollArea>
             </SheetContent>
@@ -347,6 +352,12 @@ export default function ViewOnlyCalendar() {
         onBulkDelete={() => {}}
         onMoveRequest={() => {}}
         birthdays={data.birthdays || []}
+        budgetScore={null}
+        dojoRank={{ level: 0, name: 'No Rank', belt: { name: 'None', color: '' }, stripes: 0, nextMilestone: 0, nextRankName: '', progress: 0, balanceToNext: 0 }}
+        goals={[]}
+        onScoreInfoClick={() => {}}
+        onScoreHistoryClick={() => {}}
+        onDojoInfoClick={() => {}}
       />
     </div>
   );

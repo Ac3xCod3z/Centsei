@@ -56,7 +56,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Entry, RolloverPreference, WeeklyBalances, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
-import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO, startOfDay } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { scheduleNotificationsLocal, cancelAllNotificationsLocal } from "@/lib/notification-manager";
@@ -69,9 +69,6 @@ import { getDojoRank } from "@/lib/dojo-journey";
 import { DojoJourneyInfoDialog } from "./dojo-journey-info-dialog";
 import JSConfetti from 'js-confetti';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
-import { BudgetScoreWidget } from "./budget-score-widget";
-import { DojoJourneyWidget } from "./dojo-journey-widget";
-import { Separator } from "./ui/separator";
 import { getHolidaysForYear } from "@/lib/holidays";
 import { getForecastInsights } from "@/lib/forecast-insights";
 import SenseiSaysUI from "./sensei-says-ui";
@@ -97,8 +94,8 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
     const dateStr = format(date, 'yyyy-MM-dd');
     const exception = entry.exceptions?.[dateStr];
 
-    const today = startOfDay(parseDateInTimezone(format(new Date(), 'yyyy-MM-dd'), timezone));
-    const instanceDate = startOfDay(parseDateInTimezone(dateStr, timezone));
+    const today = startOfDay(new Date());
+    const instanceDate = startOfDay(date);
     const isPastOrToday = !isAfter(instanceDate, today);
 
     let isPaid = false;
@@ -431,11 +428,11 @@ export default function CentseiDashboard() {
                   category: data.category === masterEntry.category ? undefined : data.category,
                 };
                 
-                exceptions[instanceDate] = { ...exceptions[instanceDate], ...exceptionData };
+                exceptions[instanceDate] = { ...exceptions[instanceDate], ...stripUndefined(exceptionData) };
                 
                 if (oldDateStr && oldDateStr !== newDateStr) {
                     delete exceptions[oldDateStr];
-                    exceptions[newDateStr] = { ...exceptions[newDateStr], ...exceptionData, movedFrom: oldDateStr };
+                    exceptions[newDateStr] = { ...exceptions[newDateStr], ...stripUndefined(exceptionData), movedFrom: oldDateStr };
                     exceptions[oldDateStr] = { ...exceptions[oldDateStr], movedTo: newDateStr };
                 }
 
@@ -458,7 +455,7 @@ export default function CentseiDashboard() {
             const exceptions = { ...masterEntry.exceptions };
             const instanceDate = oldDateStr || newDateStr;
             const exceptionData = { name: data.name, amount: data.amount, isPaid: data.isPaid, category: data.category };
-            exceptions[instanceDate] = { ...exceptions[instanceDate], ...exceptionData };
+            exceptions[instanceDate] = { ...exceptions[instanceDate], ...stripUndefined(exceptionData) };
             
             if(oldDateStr && oldDateStr !== newDateStr) {
                 delete exceptions[oldDateStr];
@@ -609,7 +606,7 @@ export default function CentseiDashboard() {
       const masterDoc = await getDoc(docRef);
       if (masterDoc.exists()) {
         const updatedEntry = updateFn({id: masterDoc.id, ...masterDoc.data()} as Entry);
-        await updateDoc(docRef, { exceptions: stripUndefined(updatedEntry.exceptions), updated_at: serverTimestamp() });
+        await updateDoc(docRef, stripUndefined({ exceptions: updatedEntry.exceptions, updated_at: serverTimestamp() }));
       }
     } else {
       setEntries(prev => prev.map(e => (e.id === masterId ? updateFn(e) : e)));
@@ -1099,5 +1096,3 @@ export default function CentseiDashboard() {
     </>
   );
 }
-
-    
