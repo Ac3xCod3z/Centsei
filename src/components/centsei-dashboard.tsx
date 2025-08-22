@@ -221,8 +221,8 @@ function getOriginalIdFromInstance(key: string) {
 export default function CentseiDashboard() {
   const { user, isGuest, loading: authLoading, signOut } = useAuth();
   const router = useRouter();
-  const pathname = usePathname();
 
+  const pathname = usePathname();
   useBlockMobileContextMenu(pathname === "/" || pathname?.startsWith("/view"));
   useBodyNoCalloutToggle();
 
@@ -404,13 +404,12 @@ export default function CentseiDashboard() {
     const { originalDate, ...data } = entryToSave;
     const masterId = data.id;
     const newDateStr = format(data.date, 'yyyy-MM-dd');
-
-    const cleanData = stripUndefined(data);
+    const oldDateStr = originalDate;
 
     if (user && firestore) {
         if (!masterId) { // This is a new entry
             const collectionRef = collection(firestore, 'users', user.uid, 'calendar_entries');
-            await addDoc(collectionRef, { ...cleanData, date: newDateStr, created_at: serverTimestamp(), updated_at: serverTimestamp() });
+            await addDoc(collectionRef, stripUndefined({ ...data, date: newDateStr, created_at: serverTimestamp(), updated_at: serverTimestamp() }));
         } else { // This is an existing entry (master or instance)
             const masterDocRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
             const masterDoc = await getDoc(masterDocRef);
@@ -419,62 +418,58 @@ export default function CentseiDashboard() {
             const masterEntry = { id: masterDoc.id, ...masterDoc.data() } as Entry;
 
             if (masterEntry.recurrence === 'none') {
-                 await updateDoc(masterDocRef, { ...cleanData, date: newDateStr, updated_at: serverTimestamp() });
+                 await updateDoc(masterDocRef, stripUndefined({ ...data, date: newDateStr, updated_at: serverTimestamp() }));
             } else {
-                const exceptions = masterEntry.exceptions || {};
-                const oldDateStr = originalDate;
-
-                // remove old exception if it exists
-                if (oldDateStr && exceptions[oldDateStr]) {
-                   delete exceptions[oldDateStr];
-                }
+                const exceptions = { ...masterEntry.exceptions };
                 
-                // Add new exception
-                exceptions[newDateStr] = {
-                    ...exceptions[newDateStr], // preserve other potential modifications
-                    name: data.name,
-                    amount: data.amount,
-                    isPaid: data.isPaid,
-                    category: data.category
+                // If it's an instance edit, we create an exception
+                const instanceDate = oldDateStr || newDateStr;
+                
+                const exceptionData = {
+                  name: data.name,
+                  amount: data.amount,
+                  isPaid: data.isPaid,
+                  isAutoPay: data.isAutoPay,
+                  category: data.category,
                 };
-
-                // Add pointer if dates differ
+                
+                exceptions[instanceDate] = { ...exceptions[instanceDate], ...exceptionData };
+                
+                // Handle moving the date of an instance
                 if (oldDateStr && oldDateStr !== newDateStr) {
-                    exceptions[newDateStr].movedFrom = oldDateStr;
+                    delete exceptions[oldDateStr];
+                    exceptions[newDateStr] = { ...exceptions[newDateStr], ...exceptionData, movedFrom: oldDateStr };
                     exceptions[oldDateStr] = { ...exceptions[oldDateStr], movedTo: newDateStr };
                 }
 
-                await updateDoc(masterDocRef, { exceptions, updated_at: serverTimestamp() });
+                await updateDoc(masterDocRef, { exceptions: stripUndefined(exceptions), updated_at: serverTimestamp() });
             }
         }
     } else {
          setEntries(prevEntries => {
             if (!masterId) {
-                return [...prevEntries, { ...cleanData, date: newDateStr, id: crypto.randomUUID() }];
+                return [...prevEntries, { ...data, date: newDateStr, id: crypto.randomUUID() }];
             }
 
             const masterEntry = prevEntries.find(e => e.id === masterId);
             if (!masterEntry) return prevEntries;
 
             if (masterEntry.recurrence === 'none') {
-                return prevEntries.map(e => e.id === masterId ? { ...e, ...cleanData, date: newDateStr } : e);
+                return prevEntries.map(e => e.id === masterId ? { ...e, ...data, date: newDateStr } : e);
             }
             
             const exceptions = { ...masterEntry.exceptions };
-            if (originalDate && exceptions[originalDate]) {
-                delete exceptions[originalDate];
+            const instanceDate = oldDateStr || newDateStr;
+            const exceptionData = { name: data.name, amount: data.amount, isPaid: data.isPaid, category: data.category };
+            exceptions[instanceDate] = { ...exceptions[instanceDate], ...exceptionData };
+            
+            if(oldDateStr && oldDateStr !== newDateStr) {
+                delete exceptions[oldDateStr];
+                exceptions[newDateStr] = { ...exceptions[newDateStr], movedFrom: oldDateStr };
+                exceptions[oldDateStr] = { ...exceptions[oldDateStr], movedTo: newDateStr };
             }
             
-            exceptions[newDateStr] = {
-                ...exceptions[newDateStr],
-                name: data.name, amount: data.amount, isPaid: data.isPaid, category: data.category
-            };
-            if(originalDate && originalDate !== newDateStr) {
-                exceptions[newDateStr].movedFrom = originalDate;
-                exceptions[originalDate] = { ...exceptions[originalDate], movedTo: newDateStr };
-            }
-            
-            return prevEntries.map(e => e.id === masterId ? { ...e, exceptions } : e);
+            return prevEntries.map(e => e.id === masterId ? { ...e, exceptions: stripUndefined(exceptions) } : e);
         });
     }
 
@@ -614,7 +609,7 @@ export default function CentseiDashboard() {
       const masterDoc = await getDoc(docRef);
       if (masterDoc.exists()) {
         const updatedEntry = updateFn(masterDoc.data() as Entry);
-        await updateDoc(docRef, { exceptions: updatedEntry.exceptions, updated_at: serverTimestamp() });
+        await updateDoc(docRef, { exceptions: stripUndefined(updatedEntry.exceptions), updated_at: serverTimestamp() });
       }
     } else {
       setEntries(prev => prev.map(e => (e.id === masterId ? updateFn(e) : e)));
@@ -683,7 +678,7 @@ export default function CentseiDashboard() {
 
         for (const [id, updates] of masterUpdates.entries()) {
             const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', id);
-            batch.update(docRef, updates);
+            batch.update(docRef, { exceptions: stripUndefined(updates.exceptions) });
         }
         await batch.commit();
     } else {
@@ -871,27 +866,29 @@ export default function CentseiDashboard() {
             <Image src="/CentseiLogo.png" alt="Centsei Logo" width={80} height={26} />
           </div>
           <div className="flex items-center gap-2">
+            {isMobile && (
+              <Sheet open={isMobileSheetOpen} onOpenChange={setMobileSheetOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="ghost" size="icon">
+                    <Menu />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" className="p-0 flex flex-col w-3/4">
+                  <SheetHeader className="p-4 border-b">
+                    <SheetTitle>Week of {format(startOfWeek(selectedDate), "MMM d")}</SheetTitle>
+                  </SheetHeader>
+                  <ScrollArea className="flex-1">
+                    <SidebarContent
+                      weeklyTotals={weeklyTotals}
+                      selectedDate={selectedDate}
+                    />
+                  </ScrollArea>
+                </SheetContent>
+              </Sheet>
+            )}
+
             {!isMobile && (
               <>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline">
-                      <Menu className="mr-2 h-4 w-4" /> Menu
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setMonthlySummaryOpen(true)}><PieChart className="mr-2 h-4 w-4" />Monthly Summary</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setMonthlyBreakdownOpen(true)}><BarChartBig className="mr-2 h-4 w-4" />Category Breakdown</DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setScoreInfoOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setDojoInfoOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => senseiSays.showFavorites()}><Heart className="mr-2 h-4 w-4" />Favorite Mantras</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-
                 <Button variant="ghost" size="icon" onClick={() => setCalculatorOpen(true)}>
                   <Calculator className="h-5 w-5" />
                   <span className="sr-only">Calculator</span>
@@ -962,25 +959,13 @@ export default function CentseiDashboard() {
           birthdays={birthdays}
         />
         
-        {isMobile && (
-          <Sheet open={isMobileSheetOpen} onOpenChange={setMobileSheetOpen}>
-            <SheetTrigger asChild>
-               <Button className="fixed bottom-4 left-4 rounded-full h-14 w-14 shadow-lg lg:hidden" variant="default" size="icon">
-                  <Menu />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="bottom" className="p-0 flex flex-col h-3/4">
-               <SheetHeader className="p-4 border-b">
-                 <SheetTitle>Week of {format(startOfWeek(selectedDate), "MMM d")}</SheetTitle>
-              </SheetHeader>
-              <ScrollArea className="flex-1">
-                  <SidebarContent
-                    weeklyTotals={weeklyTotals}
-                    selectedDate={selectedDate}
-                  />
-              </ScrollArea>
-            </SheetContent>
-          </Sheet>
+        {!isMobile && (
+          <>
+            <div className="absolute bottom-4 right-4 z-10 space-y-4">
+              {budgetScore && <BudgetScoreWidget score={budgetScore} onInfoClick={() => setScoreInfoOpen(true)} onHistoryClick={() => setScoreHistoryOpen(true)} />}
+              {goals.length > 0 && <DojoJourneyWidget rank={dojoRank} onInfoClick={() => setDojoInfoOpen(true)} />}
+            </div>
+          </>
         )}
       </div>
 
