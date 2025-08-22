@@ -443,27 +443,25 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
                   />
                 )}
                 
-                {(!isAutoPay || entryType === 'income') && (
-                    <FormField
-                    control={form.control}
-                    name="isPaid"
-                    render={({ field }) => (
-                        <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-4">
-                        <FormControl>
-                            <Checkbox
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            />
-                        </FormControl>
-                        <div className="space-y-1 leading-none">
-                            <FormLabel>
-                            Mark as {entryType === 'bill' ? 'Paid' : 'Received'}
-                            </FormLabel>
-                        </div>
-                        </FormItem>
-                    )}
-                    />
-                )}
+                <FormField
+                  control={form.control}
+                  name="isPaid"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-4">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel>
+                          Mark as {entryType === 'bill' ? 'Paid' : 'Received'}
+                        </FormLabel>
+                      </div>
+                    </FormItem>
+                  )}
+                />
 
                 <DialogFooter className="pt-4 sm:justify-between flex-wrap">
                     <div className="flex gap-2 justify-start">

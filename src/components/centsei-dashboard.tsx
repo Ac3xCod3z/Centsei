@@ -93,19 +93,21 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
   
   const recurrenceEndDate = entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null;
 
-  const createInstance = (date: Date, overridePaidStatus?: boolean): Entry => {
+  const createInstance = (date: Date): Entry => {
     const dateStr = format(date, 'yyyy-MM-dd');
     const exception = entry.exceptions?.[dateStr];
 
-    let isPaid = overridePaidStatus ?? false;
+    const today = parseDateInTimezone(format(new Date(), 'yyyy-MM-dd'), timezone);
+    const instanceDate = parseDateInTimezone(dateStr, timezone);
+    const isPastOrToday = !isAfter(instanceDate, today);
 
+    let isPaid = false;
     if (exception && typeof exception.isPaid === 'boolean') {
       isPaid = exception.isPaid;
     } else if (entry.recurrence === 'none') {
       isPaid = entry.isPaid ?? false;
     } else {
-      const isPast = isBefore(date, startOfMonth(new Date()));
-      isPaid = isPast ? (entry.type === 'income' || !!entry.isAutoPay) : false;
+      isPaid = !!(entry.isAutoPay && entry.type === 'bill' && isPastOrToday);
     }
 
     return {
@@ -123,7 +125,7 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
   
   if (entry.recurrence === 'none') {
     if (isWithinInterval(anchorDate, { start, end })) {
-      const instance = createInstance(anchorDate, entry.isPaid);
+      const instance = createInstance(anchorDate);
       instanceMap.set(entry.date, instance);
     }
   } else {
@@ -199,7 +201,7 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
           if (exception.amount) existingInstance.amount = exception.amount;
         } 
         else if (exception.movedFrom && exception.movedFrom !== 'deleted') {
-          instanceMap.set(dateStr, createInstance(exceptionDate, exception.isPaid));
+          instanceMap.set(dateStr, createInstance(exceptionDate));
         }
       }
     });
@@ -316,11 +318,11 @@ export default function CentseiDashboard() {
   const allGeneratedEntries = useMemo(() => {
     if (entries.length === 0) return [];
     
-    const viewStart = startOfMonth(subMonths(currentMonth, 12));
-    const viewEnd = endOfMonth(addMonths(currentMonth, 24));
+    const viewStart = startOfMonth(subMonths(new Date(), 12));
+    const viewEnd = endOfMonth(addMonths(new Date(), 24));
 
     return entries.flatMap((e) => generateRecurringInstances(e, viewStart, viewEnd, timezone));
-  }, [entries, currentMonth, timezone]);
+  }, [entries, timezone]);
   
   useEffect(() => {
     if (allGeneratedEntries.length === 0) {
@@ -329,7 +331,7 @@ export default function CentseiDashboard() {
     }
 
     const newWeeklyBalances: WeeklyBalances = {};
-    const sortedEntries = allGeneratedEntries.sort((a,b) => a.date.localeCompare(b.date));
+    const sortedEntries = [...allGeneratedEntries].sort((a,b) => a.date.localeCompare(b.date));
         
     const firstDate = parseDateInTimezone(sortedEntries[0].date, timezone);
     const lastDate = parseDateInTimezone(sortedEntries[sortedEntries.length - 1].date, timezone);
@@ -345,7 +347,7 @@ export default function CentseiDashboard() {
 
         const entriesForWeek = allGeneratedEntries.filter(e => {
             const entryDate = parseDateInTimezone(e.date, timezone);
-            return entryDate >= weekStart && entryDate <= weekEnd;
+            return isWithinInterval(entryDate, { start: weekStart, end: weekEnd });
         });
         
         const income = entriesForWeek.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
@@ -599,8 +601,8 @@ export default function CentseiDashboard() {
       const exceptions = { ...masterEntry.exceptions };
       const oldDate = entryToMove.date;
       
-      exceptions[oldDate] = { ...exceptions[oldDate], movedTo: newDate };
-      exceptions[newDate] = { ...exceptions[newDate], movedFrom: oldDate };
+      exceptions[oldDate] = { ...(exceptions[oldDate] || {}), movedTo: newDate };
+      exceptions[newDate] = { ...(exceptions[newDate] || {}), movedFrom: oldDate };
 
       return { ...masterEntry, exceptions };
     };
@@ -752,11 +754,10 @@ export default function CentseiDashboard() {
     
     const weekBalanceInfo = weeklyBalances[weekKey];
     const startOfWeekBalance = weekBalanceInfo ? weekBalanceInfo.start : 0;
-    const endOfWeekBalance = weekBalanceInfo ? weekBalanceInfo.end : 0;
 
     const weekEntries = allGeneratedEntries.filter(e => {
         const entryDate = parseDateInTimezone(e.date, timezone);
-        return entryDate >= weekStart && entryDate <= endOfWeek(weekStart);
+        return isWithinInterval(entryDate, {start: weekStart, end: endOfWeek(weekStart)});
     });
 
     const weeklyIncome = weekEntries.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
@@ -765,7 +766,7 @@ export default function CentseiDashboard() {
     return {
         income: weeklyIncome,
         bills: weeklyBills,
-        net: endOfWeekBalance,
+        net: startOfWeekBalance + weeklyIncome - weeklyBills,
         startOfWeekBalance: startOfWeekBalance,
         status: weeklyIncome - weeklyBills,
     };
