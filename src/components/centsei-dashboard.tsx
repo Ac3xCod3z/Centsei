@@ -1,10 +1,11 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useMedia } from "react-use";
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import {
   collection,
   onSnapshot,
@@ -55,8 +56,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Entry, RolloverPreference, WeeklyBalances, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
-import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
+import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { scheduleNotificationsLocal, cancelAllNotificationsLocal } from "@/lib/notification-manager";
@@ -75,20 +75,23 @@ import { Separator } from "./ui/separator";
 import { getHolidaysForYear } from "@/lib/holidays";
 import { getForecastInsights } from "@/lib/forecast-insights";
 import SenseiSaysUI from "./sensei-says-ui";
-import { useSenseiSays } from "@/lib/sensei/useSenseiSays";
 import { useAuth } from './auth-provider';
 import { CentseiLoader } from "./centsei-loader";
 import useLocalStorage from "@/hooks/use-local-storage";
 import { parseDateInTimezone, stripUndefined } from "@/lib/utils";
-import { MigrationDialog } from './migration-dialog';
+import { useSenseiSays } from "@/lib/sensei/useSenseiSays";
+import { useBlockMobileContextMenu } from "@/hooks/use-block-mobile-contextmenu";
+import { useBodyNoCalloutToggle } from "@/hooks/use-body-no-callout-toggle";
 
 const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezone: string): Entry[] => {
   if (!entry.date) return [];
 
-  const nowInTimezone = toZonedTime(new Date(), timezone);
-  const todayInTimezone = set(nowInTimezone, { hours: 0, minutes: 0, seconds: 0, milliseconds: 0 });
-
   const instanceMap = new Map<string, Entry>();
+  
+  const anchorDate = parseDateInTimezone(entry.date, timezone);
+  const floorDate = max([anchorDate, start]);
+  
+  const recurrenceEndDate = entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null;
 
   const createInstance = (date: Date, overridePaidStatus?: boolean): Entry => {
     const dateStr = format(date, 'yyyy-MM-dd');
@@ -101,18 +104,11 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
     } else if (entry.recurrence === 'none') {
       isPaid = entry.isPaid ?? false;
     } else {
-      const isPast = isBefore(date, todayInTimezone);
-      const isToday = isSameDay(date, todayInTimezone);
-      const isAfter9AM = nowInTimezone.getHours() >= 9;
-
-      if (isPast) {
-        isPaid = entry.type === 'income' || !!entry.isAutoPay;
-      } else if (isToday && isAfter9AM) {
-        isPaid = entry.type === 'income' || !!entry.isAutoPay;
-      }
+      const isPast = isBefore(date, startOfMonth(new Date()));
+      isPaid = isPast ? (entry.type === 'income' || !!entry.isAutoPay) : false;
     }
 
-    const finalInstance = {
+    return {
       ...entry,
       date: dateStr,
       id: `${entry.id}-${dateStr}`,
@@ -120,103 +116,90 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
       order: exception?.order ?? entry.order,
       name: exception?.name ?? entry.name,
       amount: exception?.amount ?? entry.amount,
-      ...(exception?.category ? { category: exception.category } : {}),
+      category: exception?.category ?? entry.category,
+      isAutoPay: entry.isAutoPay,
     };
-
-    return finalInstance;
   };
-
-  const potentialDates: Date[] = [];
+  
   if (entry.recurrence === 'none') {
-    const entryDate = parseDateInTimezone(entry.date, timezone);
-    if (entryDate >= start && entryDate <= end) potentialDates.push(entryDate);
+    if (isWithinInterval(anchorDate, { start, end })) {
+      const instance = createInstance(anchorDate, entry.isPaid);
+      instanceMap.set(entry.date, instance);
+    }
   } else {
-    const originalEntryDate = parseDateInTimezone(entry.date, timezone);
-    const recurrenceInterval = entry.recurrence ? recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths] : 0;
-
-    if (recurrenceInterval > 0) {
-      let currentDate = originalEntryDate;
-
-      if (isBefore(currentDate, start)) {
-        const monthsDiff = differenceInCalendarMonths(start, currentDate);
-        const numIntervals = Math.max(0, Math.floor(monthsDiff / recurrenceInterval));
-        if (numIntervals > 0) currentDate = add(currentDate, { months: numIntervals * recurrenceInterval });
-      }
-      while (isBefore(currentDate, start)) currentDate = add(currentDate, { months: recurrenceInterval });
-
-      while (currentDate <= end) {
-        const originalDay = getDate(originalEntryDate);
-        const lastDayInCurrentMonth = lastDayOfMonth(currentDate).getDate();
-        const dayForMonth = Math.min(originalDay, lastDayInCurrentMonth);
-        const finalDate = setDate(currentDate, dayForMonth);
-
-        if (finalDate >= start && finalDate <= end && isSameMonth(finalDate, currentDate)) {
-          potentialDates.push(finalDate);
+    let currentDate = anchorDate;
+    
+    // Fast-forward to the first relevant date
+    if (isBefore(currentDate, floorDate)) {
+        if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
+            const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
+            while (isBefore(currentDate, floorDate)) {
+              currentDate = add(currentDate, { weeks: weeksToAdd });
+            }
+        } else {
+            const interval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
+            if (interval) {
+               while (isBefore(currentDate, floorDate)) {
+                  currentDate = add(currentDate, { months: interval });
+               }
+            }
         }
-        currentDate = add(currentDate, { months: recurrenceInterval });
+    }
+    
+    let occurrenceCount = 0;
+    while (isBefore(currentDate, end) || isSameDay(currentDate, end)) {
+      if (recurrenceEndDate && isAfter(currentDate, recurrenceEndDate)) break;
+      if (entry.recurrenceCount && occurrenceCount >= entry.recurrenceCount) break;
+
+      if (isWithinInterval(currentDate, { start, end })) {
+        const dateStr = format(currentDate, 'yyyy-MM-dd');
+        const instance = createInstance(currentDate);
+        instanceMap.set(dateStr, instance);
       }
-    } else if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
-      const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
-      let currentDate = originalEntryDate;
-      while (isBefore(currentDate, start)) currentDate = add(currentDate, { weeks: weeksToAdd });
-      while (currentDate <= end) {
-        if (currentDate >= start) potentialDates.push(currentDate);
+      
+      occurrenceCount++;
+      
+      if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
+        const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
         currentDate = add(currentDate, { weeks: weeksToAdd });
+      } else {
+        const recurrenceInterval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
+        if (recurrenceInterval) {
+          const nextMonthDate = add(anchorDate, { months: recurrenceInterval * occurrenceCount });
+          const originalDay = getDate(anchorDate);
+          const lastDayInNextMonth = lastDayOfMonth(nextMonthDate).getDate();
+          currentDate = setDate(nextMonthDate, Math.min(originalDay, lastDayInNextMonth));
+        } else {
+          break; 
+        }
       }
     }
   }
 
-  potentialDates.forEach(date => {
-    const dateStr = format(date, 'yyyy-MM-dd');
-    if (!instanceMap.has(dateStr)) {
-      const instance = createInstance(date, entry.exceptions?.[dateStr]?.isPaid);
-      instanceMap.set(dateStr, instance);
-    }
-  });
-
   if (entry.exceptions) {
     Object.entries(entry.exceptions).forEach(([dateStr, exception]) => {
-      // honor explicit removals
-      if (exception.movedFrom) {
+      if (!exception) return;
+
+      if (exception.movedTo) {
+        instanceMap.delete(dateStr);
+      }
+      
+      if (exception.movedFrom === 'deleted') {
         instanceMap.delete(dateStr);
         return;
       }
 
       const exceptionDate = parseDateInTimezone(dateStr, timezone);
-      if (exceptionDate >= start && exceptionDate <= end) {
+      if (isWithinInterval(exceptionDate, { start, end })) {
         const existingInstance = instanceMap.get(dateStr);
         if (existingInstance) {
           if (exception.isPaid !== undefined) existingInstance.isPaid = exception.isPaid;
           if (exception.order !== undefined) existingInstance.order = exception.order;
           if (exception.name) existingInstance.name = exception.name;
           if (exception.amount) existingInstance.amount = exception.amount;
-        } else {
-          instanceMap.set(dateStr, {
-            ...entry,
-            date: dateStr,
-            id: `${entry.id}-${dateStr}`,
-            isPaid: exception.isPaid ?? false,
-            order: exception.order ?? entry.order,
-            name: exception.name ?? entry.name,
-            amount: exception.amount ?? entry.amount,
-            ...(exception.category ? { category: exception.category } : {}),
-          });
-        }
-      }
-
-      if (exception.movedTo) {
-        const movedToDate = parseDateInTimezone(exception.movedTo, timezone);
-        if (movedToDate >= start && movedToDate <= end && !instanceMap.has(exception.movedTo)) {
-           instanceMap.set(exception.movedTo, {
-            ...entry,
-            id: `${entry.id}-${exception.movedTo}`,
-            date: exception.movedTo,
-            isPaid: exception.isPaid ?? false,
-            order: exception.order ?? entry.order,
-            name:   exception.name   ?? entry.name,
-            amount: exception.amount ?? entry.amount,
-            ...(exception.category ? { category: exception.category } : {})
-          });
+        } 
+        else if (exception.movedFrom && exception.movedFrom !== 'deleted') {
+          instanceMap.set(dateStr, createInstance(exceptionDate, exception.isPaid));
         }
       }
     });
@@ -224,6 +207,7 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
 
   return Array.from(instanceMap.values());
 };
+
 
 function getOriginalIdFromInstance(key: string) {
   const m = key.match(/^(.*)-(\d{4})-(\d{2})-(\d{2})$/);
@@ -233,12 +217,10 @@ function getOriginalIdFromInstance(key: string) {
 export default function CentseiDashboard() {
   const { user, isGuest, loading: authLoading, signOut } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
-  useEffect(() => {
-    if (!authLoading && !user && !isGuest) {
-        router.replace('/login');
-    }
-  }, [user, isGuest, authLoading, router]);
+  useBlockMobileContextMenu(pathname === "/" || pathname?.startsWith("/view"));
+  useBodyNoCalloutToggle();
 
   const [entries, setEntries] = useLocalStorage<Entry[]>('centseiEntries', []);
   const [goals, setGoals] = useLocalStorage<Goal[]>('centseiGoals', []);
@@ -387,7 +369,7 @@ export default function CentseiDashboard() {
     if (JSON.stringify(newWeeklyBalances) !== JSON.stringify(weeklyBalances)) {
         setWeeklyBalances(newWeeklyBalances);
     }
-  }, [allGeneratedEntries, rolloverPreference, timezone]);
+  }, [allGeneratedEntries, rolloverPreference, timezone, weeklyBalances]);
 
   const handleNotificationsToggle = (enabled: boolean) => {
     setNotificationsEnabled(enabled);
@@ -609,41 +591,29 @@ export default function CentseiDashboard() {
   }
 
   const handleMoveEntry = async (entryToMove: Entry, newDate: string) => {
-    if (user) {
-        const masterId = getOriginalIdFromInstance(entryToMove.id);
-        const masterDocRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
-        const masterDoc = await getDoc(masterDocRef);
-        const masterEntry = masterDoc.data() as Entry;
-        
-        if (masterEntry.recurrence === 'none') {
-            await updateDoc(masterDocRef, { date: newDate });
-        } else {
-            const exceptions = { ...masterEntry.exceptions };
-            const oldDate = entryToMove.date;
-            
-            exceptions[oldDate] = { ...exceptions[oldDate], movedTo: newDate };
-            exceptions[newDate] = { ...exceptions[newDate], movedFrom: oldDate };
+    const masterId = getOriginalIdFromInstance(entryToMove.id);
+    const updateFn = (masterEntry: Entry): Entry => {
+      if (masterEntry.recurrence === 'none') {
+        return { ...masterEntry, date: newDate };
+      }
+      const exceptions = { ...masterEntry.exceptions };
+      const oldDate = entryToMove.date;
+      
+      exceptions[oldDate] = { ...exceptions[oldDate], movedTo: newDate };
+      exceptions[newDate] = { ...exceptions[newDate], movedFrom: oldDate };
 
-            await updateDoc(masterDocRef, { exceptions });
-        }
+      return { ...masterEntry, exceptions };
+    };
+
+    if (user && firestore) {
+      const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
+      const masterDoc = await getDoc(docRef);
+      if (masterDoc.exists()) {
+        const updatedEntry = updateFn(masterDoc.data() as Entry);
+        await updateDoc(docRef, { exceptions: updatedEntry.exceptions, updated_at: serverTimestamp() });
+      }
     } else {
-        setEntries(prevEntries => {
-            const masterId = getOriginalIdFromInstance(entryToMove.id);
-            return prevEntries.map(e => {
-                if (e.id === masterId) {
-                    if (e.recurrence === 'none') {
-                        return { ...e, date: newDate };
-                    } else {
-                        const exceptions = { ...e.exceptions };
-                        const oldDate = entryToMove.date;
-                        exceptions[oldDate] = { ...exceptions[oldDate], movedTo: newDate };
-                        exceptions[newDate] = { ...exceptions[newDate], movedFrom: oldDate };
-                        return { ...e, exceptions };
-                    }
-                }
-                return e;
-            });
-        });
+      setEntries(prev => prev.map(e => (e.id === masterId ? updateFn(e) : e)));
     }
      
     setMoveRequest(null);
@@ -690,6 +660,53 @@ export default function CentseiDashboard() {
     }
   }
 
+  const handleReorder = async (orderedEntries: Entry[]) => {
+    if (user) {
+        const batch = writeBatch(firestore);
+        const masterUpdates = new Map<string, any>();
+        
+        orderedEntries.forEach((entry, index) => {
+            const masterId = getOriginalIdFromInstance(entry.id);
+            const masterEntry = entries.find(e => e.id === masterId);
+            if (!masterEntry) return;
+
+            const currentUpdates = masterUpdates.get(masterId) || { exceptions: { ...masterEntry.exceptions } };
+            
+            // Set the order for this specific instance date
+            currentUpdates.exceptions[entry.date] = { ...currentUpdates.exceptions[entry.date], order: index };
+            masterUpdates.set(masterId, currentUpdates);
+        });
+
+        for (const [id, updates] of masterUpdates.entries()) {
+            const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', id);
+            batch.update(docRef, updates);
+        }
+        await batch.commit();
+    } else {
+        setEntries(prevEntries => {
+            const masterUpdates: { [key: string]: any } = {};
+
+            orderedEntries.forEach((entry, index) => {
+                const masterId = getOriginalIdFromInstance(entry.id);
+                 if (!masterUpdates[masterId]) {
+                    const masterEntry = prevEntries.find(e => e.id === masterId);
+                    masterUpdates[masterId] = { exceptions: { ...masterEntry?.exceptions } };
+                 }
+                 masterUpdates[masterId].exceptions[entry.date] = { ...masterUpdates[masterId].exceptions[entry.date], order: index };
+            });
+
+            return prevEntries.map(e => {
+                if (masterUpdates[e.id]) {
+                    return { ...e, exceptions: masterUpdates[e.id].exceptions };
+                }
+                return e;
+            });
+        });
+    }
+
+    toast({ title: 'Order Saved', description: 'Your new entry order has been saved.' });
+  };
+
 
   const openNewEntryDialog = (date: Date) => {
     setSelectedDate(date);
@@ -730,7 +747,7 @@ export default function CentseiDashboard() {
   }
 
   const weeklyTotals = useMemo(() => {
-    const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
+    const weekStart = startOfWeek(selectedDate);
     const weekKey = format(weekStart, 'yyyy-MM-dd');
     
     const weekBalanceInfo = weeklyBalances[weekKey];
@@ -826,6 +843,15 @@ export default function CentseiDashboard() {
   }, [lastWelcomeMessage, toast, setLastWelcomeMessage]);
 
 
+  useEffect(() => {
+    if (!authLoading && !user && !isGuest) {
+        router.replace('/login');
+    }
+  }, [user, isGuest, authLoading, router]);
+
+  const rootRef = useRef<HTMLDivElement>(null);
+
+
   if (authLoading || (!user && !isGuest)) {
     return <CentseiLoader isAuthLoading />;
   }
@@ -836,7 +862,7 @@ export default function CentseiDashboard() {
 
   return (
     <>
-      <div className="flex h-screen w-full flex-col bg-background">
+      <div ref={rootRef} className="flex h-screen w-full flex-col bg-background">
         <header className="flex h-20 items-center justify-between border-b px-4 md:px-6 shrink-0">
           <div className="flex items-center gap-2">
             <Image src="/CentseiLogo.png" alt="Centsei Logo" width={80} height={26} />
@@ -851,11 +877,11 @@ export default function CentseiDashboard() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setMonthlySummaryOpen(true)}><PieChart className="mr-2 h-4 w-4" />Monthly Summary</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setMonthlyBreakdownOpen(true)}><BarChartBig className="mr-2 h-4 w-4" />Category Breakdown</DropdownMenuItem>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setScoreInfoOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setDojoInfoOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -885,21 +911,21 @@ export default function CentseiDashboard() {
               <DropdownMenuContent align="end">
                 <DropdownMenuLabel>{user?.displayName || 'Guest User'}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setMonthlySummaryOpen(true)}><PieChart className="mr-2 h-4 w-4" />Monthly Summary</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setMonthlyBreakdownOpen(true)}><BarChartBig className="mr-2 h-4 w-4" />Category Breakdown</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setScoreInfoOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDojoInfoOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
                 {isMobile && (
                   <>
-                    <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setMonthlySummaryOpen(true)}><PieChart className="mr-2 h-4 w-4" />Monthly Summary</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setMonthlyBreakdownOpen(true)}><BarChartBig className="mr-2 h-4 w-4" />Category Breakdown</DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setScoreInfoOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setDojoInfoOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
                     <DropdownMenuSeparator />
                      <DropdownMenuItem onClick={() => setCalculatorOpen(true)}><Calculator className="mr-2 h-4 w-4" />Calculator</DropdownMenuItem>
                      <DropdownMenuItem onClick={() => setSettingsDialogOpen(true)}><Settings className="mr-2 h-4 w-4"/>Settings</DropdownMenuItem>
-                    <DropdownMenuSeparator />
                   </>
                 )}
+                <DropdownMenuSeparator />
                  <DropdownMenuItem onClick={() => senseiSays.showFavorites()}><Heart className="mr-2 h-4 w-4" />Favorite Mantras</DropdownMenuItem>
                  <DropdownMenuItem onClick={signOut}><LogOut className="mr-2 h-4 w-4" />Sign Out</DropdownMenuItem>
               </DropdownMenuContent>
@@ -949,13 +975,6 @@ export default function CentseiDashboard() {
                     weeklyTotals={weeklyTotals}
                     selectedDate={selectedDate}
                   />
-                  <Separator className="my-4" />
-                  <div className="px-4 pb-4 space-y-4">
-                     {budgetScore && (
-                        <BudgetScoreWidget score={budgetScore} onInfoClick={() => setScoreInfoOpen(true)} onHistoryClick={() => setScoreHistoryOpen(true)} />
-                     )}
-                      <DojoJourneyWidget rank={dojoRank} onInfoClick={() => setDojoInfoOpen(true)} />
-                  </div>
               </ScrollArea>
             </SheetContent>
           </Sheet>
@@ -1001,6 +1020,7 @@ export default function CentseiDashboard() {
         })}
         onAddEntry={handleAddFromDayDialog}
         onEditEntry={handleEditFromDayDialog}
+        onReorder={handleReorder}
       />
       <MonthlyBreakdownDialog
         isOpen={isMonthlyBreakdownOpen}
@@ -1088,3 +1108,5 @@ export default function CentseiDashboard() {
     </>
   );
 }
+
+    

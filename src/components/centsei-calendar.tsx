@@ -1,4 +1,5 @@
 
+
 // src/components/centsei-calendar.tsx
 "use client";
 
@@ -21,7 +22,6 @@ import {
   setMonth,
   getMonth,
 } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
 import { ChevronLeft, ChevronRight, Plus, Trash2, TrendingUp, TrendingDown, Repeat, Check, Trophy, ChevronDown, Cake, PartyPopper } from "lucide-react";
 
 
@@ -451,22 +451,26 @@ export function CentseiCalendar({
   };
   
   // Handlers for mobile day long press
-  const handleDayTouchStart = (day: Date) => {
+  const handleDayTouchStart = (day: Date, dayEntries: Entry[]) => {
     if (!isMobile || isReadOnly) return;
     
     clearLongPressTimeout();
     
     longPressTimeoutRef.current = setTimeout(() => {
-        setSelectedDate(day);
-        setGlobalSelectedDate(day);
         const dayHolidays = holidays.filter(h => isSameDay(h.date, day));
         const dayBirthdays = birthdays.filter(b => {
             if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
             const [bMonth, bDay] = b.date.split('-').map(Number);
             return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
         });
-        openDayEntriesDialog(dayHolidays, dayBirthdays);
-        if (navigator.vibrate) navigator.vibrate(50);
+
+        // Only open the dialog if there's something to see
+        if (dayEntries.length > 0 || dayHolidays.length > 0 || dayBirthdays.length > 0) {
+            setSelectedDate(day);
+            setGlobalSelectedDate(day);
+            openDayEntriesDialog(dayHolidays, dayBirthdays);
+            if (navigator.vibrate) navigator.vibrate(50);
+        }
     }, 500);
   }
 
@@ -579,9 +583,10 @@ export function CentseiCalendar({
                       onClick={() => handleDayClick(day, dayEntries)}
                       onDragOver={handleDragOver}
                       onDrop={handleDrop}
-                      onTouchStart={() => handleDayTouchStart(day)}
+                      onTouchStart={() => handleDayTouchStart(day, dayEntries)}
                       onTouchMove={clearLongPressTimeout}
                       onTouchEnd={clearLongPressTimeout}
+                      onContextMenu={(e) => e.preventDefault()}
                     >
                       <div className="flex justify-between items-start">
                         <div className="flex items-center gap-1.5">
@@ -623,6 +628,7 @@ export function CentseiCalendar({
                                   onTouchStart={(e) => handleTouchStart(e, entry)}
                                   onTouchMove={handleTouchMove}
                                   onTouchEnd={handleTouchEnd}
+                                  onContextMenu={(e) => e.preventDefault()}
                                   draggable={!isReadOnly && !isSelectionMode && !isMobile}
                                   className={cn(
                                       "px-2 py-1 rounded-full text-left flex items-center gap-2 transition-all duration-200 group",
@@ -637,7 +643,7 @@ export function CentseiCalendar({
                                     "p-1.5 rounded-full flex items-center justify-center shrink-0",
                                     entry.isPaid ? 'bg-muted-foreground/20 text-muted-foreground' : entry.type === 'bill' ? 'bg-destructive/20 text-destructive' : 'bg-emerald-500/20 text-emerald-500'
                                 )}>
-                                   {entry.isPaid ? <Check className="h-3 w-3" /> : entry.type === 'bill' ? <Image src="/bills.png" alt="Bill" width={14} height={14} /> : <Image src="/income.png" alt="Income" width={14} height={14} />}
+                                   {entry.isPaid ? <Check className="h-3 w-3" /> : entry.type === 'bill' ? <Image src="/bills.png" alt="Bill" width={14} height={14} draggable={false} /> : <Image src="/income.png" alt="Income" width={14} height={14} draggable={false} />}
                                 </div>
                                 <span className={cn("flex-1 truncate font-medium", entry.isPaid && "line-through", isMobile && 'hidden')}>{entry.name}</span>
                                 <span className={cn("font-semibold", entry.isPaid && "line-through")}>{formatCurrency(entry.amount)}</span>

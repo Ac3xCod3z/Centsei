@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { toZonedTime } from "date-fns-tz";
+import { toZonedTime, fromZonedTime } from "date-fns-tz";
+import { format as formatTz } from "date-fns-tz";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -14,10 +15,13 @@ export function formatCurrency(amount: number) {
   }).format(amount);
 }
 
-export const parseDateInTimezone = (dateString: string, timeZone: string) => {
-    const [year, month, day] = dateString.split('-').map(Number);
-    return toZonedTime(new Date(year, month - 1, day), timeZone);
+export const parseDateInTimezone = (dateString: string, timeZone: string): Date => {
+  // We must append a fixed time to treat the string as local, not UTC.
+  // 'YYYY-MM-DD' is parsed as UTC midnight, but 'YYYY-MM-DDTHH:mm:ss' is local.
+  const localDateString = `${dateString}T00:00:00`;
+  return toZonedTime(localDateString, timeZone);
 };
+
 
 /** Recursively removes all `undefined` fields so Firestore doesn't choke */
 export const stripUndefined = <T>(value: T): T => {
