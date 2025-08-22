@@ -133,15 +133,15 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
     if (isBefore(currentDate, floorDate)) {
         if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
             const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
-            const diffWeeks = Math.floor((floorDate.getTime() - currentDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
-            const weeksToJump = Math.ceil(diffWeeks / weeksToAdd) * weeksToAdd;
-            currentDate = add(currentDate, { weeks: weeksToJump });
+            while (isBefore(currentDate, floorDate)) {
+              currentDate = add(currentDate, { weeks: weeksToAdd });
+            }
         } else {
             const interval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
             if (interval) {
-                const diffMonths = differenceInCalendarMonths(floorDate, currentDate);
-                const monthsToJump = Math.ceil(diffMonths / interval) * interval;
-                currentDate = add(currentDate, { months: monthsToJump });
+               while (isBefore(currentDate, floorDate)) {
+                  currentDate = add(currentDate, { months: interval });
+               }
             }
         }
     }
@@ -219,15 +219,8 @@ export default function CentseiDashboard() {
   const router = useRouter();
   const pathname = usePathname();
 
-  const isCalendarRoute = pathname === "/" || pathname?.startsWith("/view");
-  useBlockMobileContextMenu(isCalendarRoute);
+  useBlockMobileContextMenu(pathname === "/" || pathname?.startsWith("/view"));
   useBodyNoCalloutToggle();
-
-  useEffect(() => {
-    if (!authLoading && !user && !isGuest) {
-        router.replace('/login');
-    }
-  }, [user, isGuest, authLoading, router]);
 
   const [entries, setEntries] = useLocalStorage<Entry[]>('centseiEntries', []);
   const [goals, setGoals] = useLocalStorage<Goal[]>('centseiGoals', []);
@@ -598,41 +591,29 @@ export default function CentseiDashboard() {
   }
 
   const handleMoveEntry = async (entryToMove: Entry, newDate: string) => {
-    if (user) {
-        const masterId = getOriginalIdFromInstance(entryToMove.id);
-        const masterDocRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
-        const masterDoc = await getDoc(masterDocRef);
-        const masterEntry = masterDoc.data() as Entry;
-        
-        if (masterEntry.recurrence === 'none') {
-            await updateDoc(masterDocRef, { date: newDate });
-        } else {
-            const exceptions = { ...masterEntry.exceptions };
-            const oldDate = entryToMove.date;
-            
-            exceptions[oldDate] = { ...exceptions[oldDate], movedTo: newDate };
-            exceptions[newDate] = { ...exceptions[newDate], movedFrom: oldDate };
+    const masterId = getOriginalIdFromInstance(entryToMove.id);
+    const updateFn = (masterEntry: Entry): Entry => {
+      if (masterEntry.recurrence === 'none') {
+        return { ...masterEntry, date: newDate };
+      }
+      const exceptions = { ...masterEntry.exceptions };
+      const oldDate = entryToMove.date;
+      
+      exceptions[oldDate] = { ...exceptions[oldDate], movedTo: newDate };
+      exceptions[newDate] = { ...exceptions[newDate], movedFrom: oldDate };
 
-            await updateDoc(masterDocRef, { exceptions });
-        }
+      return { ...masterEntry, exceptions };
+    };
+
+    if (user && firestore) {
+      const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
+      const masterDoc = await getDoc(docRef);
+      if (masterDoc.exists()) {
+        const updatedEntry = updateFn(masterDoc.data() as Entry);
+        await updateDoc(docRef, { exceptions: updatedEntry.exceptions, updated_at: serverTimestamp() });
+      }
     } else {
-        setEntries(prevEntries => {
-            const masterId = getOriginalIdFromInstance(entryToMove.id);
-            return prevEntries.map(e => {
-                if (e.id === masterId) {
-                    if (e.recurrence === 'none') {
-                        return { ...e, date: newDate };
-                    } else {
-                        const exceptions = { ...e.exceptions };
-                        const oldDate = entryToMove.date;
-                        exceptions[oldDate] = { ...exceptions[oldDate], movedTo: newDate };
-                        exceptions[newDate] = { ...exceptions[newDate], movedFrom: oldDate };
-                        return { ...e, exceptions };
-                    }
-                }
-                return e;
-            });
-        });
+      setEntries(prev => prev.map(e => (e.id === masterId ? updateFn(e) : e)));
     }
      
     setMoveRequest(null);
@@ -862,6 +843,15 @@ export default function CentseiDashboard() {
   }, [lastWelcomeMessage, toast, setLastWelcomeMessage]);
 
 
+  useEffect(() => {
+    if (!authLoading && !user && !isGuest) {
+        router.replace('/login');
+    }
+  }, [user, isGuest, authLoading, router]);
+
+  const rootRef = useRef<HTMLDivElement>(null);
+
+
   if (authLoading || (!user && !isGuest)) {
     return <CentseiLoader isAuthLoading />;
   }
@@ -872,7 +862,7 @@ export default function CentseiDashboard() {
 
   return (
     <>
-      <div className="flex h-screen w-full flex-col bg-background">
+      <div ref={rootRef} className="flex h-screen w-full flex-col bg-background">
         <header className="flex h-20 items-center justify-between border-b px-4 md:px-6 shrink-0">
           <div className="flex items-center gap-2">
             <Image src="/CentseiLogo.png" alt="Centsei Logo" width={80} height={26} />
@@ -921,21 +911,21 @@ export default function CentseiDashboard() {
               <DropdownMenuContent align="end">
                 <DropdownMenuLabel>{user?.displayName || 'Guest User'}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setMonthlySummaryOpen(true)}><PieChart className="mr-2 h-4 w-4" />Monthly Summary</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setMonthlyBreakdownOpen(true)}><BarChartBig className="mr-2 h-4 w-4" />Category Breakdown</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setScoreInfoOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDojoInfoOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
                 {isMobile && (
                   <>
-                    <DropdownMenuItem onClick={() => setMonthlySummaryOpen(true)}><PieChart className="mr-2 h-4 w-4" />Monthly Summary</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setMonthlyBreakdownOpen(true)}><BarChartBig className="mr-2 h-4 w-4" />Category Breakdown</DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setScoreInfoOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setDojoInfoOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
                     <DropdownMenuSeparator />
                      <DropdownMenuItem onClick={() => setCalculatorOpen(true)}><Calculator className="mr-2 h-4 w-4" />Calculator</DropdownMenuItem>
                      <DropdownMenuItem onClick={() => setSettingsDialogOpen(true)}><Settings className="mr-2 h-4 w-4"/>Settings</DropdownMenuItem>
-                    <DropdownMenuSeparator />
                   </>
                 )}
+                <DropdownMenuSeparator />
                  <DropdownMenuItem onClick={() => senseiSays.showFavorites()}><Heart className="mr-2 h-4 w-4" />Favorite Mantras</DropdownMenuItem>
                  <DropdownMenuItem onClick={signOut}><LogOut className="mr-2 h-4 w-4" />Sign Out</DropdownMenuItem>
               </DropdownMenuContent>

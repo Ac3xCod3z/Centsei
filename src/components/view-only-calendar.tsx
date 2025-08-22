@@ -77,15 +77,15 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
     if (isBefore(currentDate, floorDate)) {
         if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
             const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
-            const diffWeeks = Math.floor((floorDate.getTime() - currentDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
-            const weeksToJump = Math.ceil(diffWeeks / weeksToAdd) * weeksToAdd;
-            currentDate = add(currentDate, { weeks: weeksToJump });
+            while (isBefore(currentDate, floorDate)) {
+              currentDate = add(currentDate, { weeks: weeksToAdd });
+            }
         } else {
             const interval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
             if (interval) {
-                const diffMonths = differenceInCalendarMonths(floorDate, currentDate);
-                const monthsToJump = Math.ceil(diffMonths / interval) * interval;
-                currentDate = add(currentDate, { months: monthsToJump });
+               while (isBefore(currentDate, floorDate)) {
+                  currentDate = add(currentDate, { months: interval });
+               }
             }
         }
     }
