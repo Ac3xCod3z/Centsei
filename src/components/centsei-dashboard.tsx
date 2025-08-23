@@ -612,35 +612,50 @@ export default function CentseiDashboard() {
      setSelectedInstances([]);
   }
 
-  const handleMoveEntry = async (entryToMove: Entry, newDate: string) => {
+  const handleMoveEntry = async (entryToMove: Entry, newDate: string, moveAll: boolean) => {
     const masterId = getOriginalIdFromInstance(entryToMove.id);
-    const updateFn = (masterEntry: Entry): Entry => {
-      if (masterEntry.recurrence === 'none') {
-        return { ...masterEntry, date: newDate };
-      }
-      const exceptions = { ...masterEntry.exceptions };
-      const oldDate = entryToMove.date;
-      
-      const oldException = exceptions[oldDate] || {};
-      const newExceptionData = { ...entryToMove };
-      delete (newExceptionData as any).id;
-      delete (newExceptionData as any).originalDate;
-      
-      exceptions[oldDate] = { ...oldException, movedTo: newDate };
-      exceptions[newDate] = { ...stripUndefined(newExceptionData), movedFrom: oldDate };
+    const masterEntry = entries.find(e => e.id === masterId);
+    if (!masterEntry) return;
 
-      return { ...masterEntry, exceptions: stripUndefined(exceptions) };
-    };
+    let updatedEntry: Entry;
+
+    if (moveAll) {
+        // Create a cleaned exceptions object, removing any prior moves.
+        const cleanedExceptions: typeof masterEntry.exceptions = {};
+        if (masterEntry.exceptions) {
+            for (const [date, ex] of Object.entries(masterEntry.exceptions)) {
+                if (ex && !ex.movedTo && !ex.movedFrom) {
+                    cleanedExceptions[date] = ex;
+                }
+            }
+        }
+        // Update the base entry date and use the cleaned exceptions
+        updatedEntry = { ...masterEntry, date: newDate, exceptions: cleanedExceptions };
+    } else {
+        // Create an exception for a single move
+        const exceptions = { ...masterEntry.exceptions };
+        const oldDate = entryToMove.date;
+        
+        // This is what the instance will look like on its new date
+        const newInstanceData: Partial<Entry> = {
+          name: entryToMove.name,
+          amount: entryToMove.amount,
+          category: entryToMove.category,
+          isPaid: entryToMove.isPaid,
+          isAutoPay: entryToMove.isAutoPay,
+          movedFrom: oldDate
+        };
+        
+        exceptions[oldDate] = { ...(exceptions[oldDate] || {}), movedTo: newDate };
+        exceptions[newDate] = stripUndefined(newInstanceData);
+        updatedEntry = { ...masterEntry, exceptions: stripUndefined(exceptions) };
+    }
 
     if (user && firestore) {
       const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
-      const masterDoc = await getDoc(docRef);
-      if (masterDoc.exists()) {
-        const updatedEntry = updateFn({id: masterDoc.id, ...masterDoc.data()} as Entry);
-        await updateDoc(docRef, stripUndefined({ exceptions: updatedEntry.exceptions, updated_at: serverTimestamp() }));
-      }
+      await updateDoc(docRef, stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
     } else {
-      setEntries(prev => prev.map(e => (e.id === masterId ? updateFn(e) : e)));
+      setEntries(prev => prev.map(e => (e.id === masterId ? updatedEntry : e)));
     }
      
     setMoveRequest(null);
@@ -999,7 +1014,13 @@ export default function CentseiDashboard() {
                   handleBulkDelete();
               }
           }}
-          onMoveRequest={(entry, newDate) => setMoveRequest({entry, newDate})}
+          onMoveRequest={(entry, newDate) => {
+            if (entry.recurrence === 'none') {
+                handleMoveEntry(entry, newDate, false);
+            } else {
+                setMoveRequest({entry, newDate});
+            }
+          }}
           birthdays={birthdays}
           budgetScore={budgetScore}
           dojoRank={dojoRank}
@@ -1127,15 +1148,24 @@ export default function CentseiDashboard() {
       <AlertDialog open={!!moveRequest} onOpenChange={() => setMoveRequest(null)}>
           <AlertDialogContent>
             <AlertDialogHeader>
-                <AlertDialogTitle>Move Entry</AlertDialogTitle>
+                <AlertDialogTitle>Move Recurring Entry</AlertDialogTitle>
                 <AlertDialogDescription>
-                    How would you like to move this recurring entry?
+                    You are moving a recurring entry. How would you like to apply this change?
                 </AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="space-y-4">
-               <Button className="w-full" onClick={() => moveRequest && handleMoveEntry(moveRequest.entry, moveRequest.newDate)}>Just This One</Button>
-               <Button className="w-full" variant="outline" onClick={() => setMoveRequest(null)}>Cancel</Button>
+            <div className="space-y-3 py-4">
+               <Button className="w-full" onClick={() => moveRequest && handleMoveEntry(moveRequest.entry, moveRequest.newDate, false)}>
+                    Move This Occurrence Only
+                    <p className="font-normal text-xs text-primary-foreground/80">The rest of the series will not be affected.</p>
+               </Button>
+               <Button className="w-full" variant="secondary" onClick={() => moveRequest && handleMoveEntry(moveRequest.entry, moveRequest.newDate, true)}>
+                   Move This and All Future Occurrences
+                   <p className="font-normal text-xs text-secondary-foreground/80">This will change the recurring date for the entire series.</p>
+                </Button>
             </div>
+             <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+            </AlertDialogFooter>
           </AlertDialogContent>
       </AlertDialog>
       
