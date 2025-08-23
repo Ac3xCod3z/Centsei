@@ -112,7 +112,7 @@ export function MonthlySummaryDialog({
                 </DialogTitle>
                  <DialogDescription>
                     A high-level overview of your finances for the month.
-                </DialogDescription>
+                 </DialogDescription>
               </div>
                <Popover open={isMonthPickerOpen} onOpenChange={setMonthPickerOpen}>
                 <PopoverTrigger asChild>

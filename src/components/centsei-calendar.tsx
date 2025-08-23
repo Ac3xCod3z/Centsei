@@ -19,7 +19,6 @@ import {
   setYear,
   setMonth,
   getMonth,
-  startOfDay,
 } from "date-fns";
 import { ChevronLeft, ChevronRight, Plus, Trash2, TrendingUp, TrendingDown, Repeat, Check, Trophy, ChevronDown, Cake, PartyPopper } from "lucide-react";
 

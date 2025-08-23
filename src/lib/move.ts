@@ -87,7 +87,7 @@ export function updateSeries(master: MasterEntry, newData: Partial<Entry>): Mast
     // Clear out all override exceptions, as the master is the new source of truth
     const cleanedExceptions: Record<ISODate, EntryException> = {};
      for(const [date, ex] of Object.entries(master.exceptions ?? {})) {
-        if ('movedTo' in ex || 'movedFrom' in ex || 'movedFrom' === 'deleted') {
+        if ('movedTo' in ex || 'movedFrom' in ex || ex.movedFrom === 'deleted') {
             cleanedExceptions[date] = ex; // Preserve moves and deletions
         }
     }

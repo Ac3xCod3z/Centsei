@@ -430,29 +430,38 @@ export default function CentseiDashboard() {
     const masterId = entryData.id ? getOriginalIdFromInstance(entryData.id) : undefined;
     const masterEntry = masterId ? entries.find(e => e.id === masterId) : undefined;
     
-    if (!masterEntry || masterEntry.recurrence === 'none') {
-        handleSaveEntry(entryData, true);
-        return;
+    if (!masterEntry) { // Case A: New entry
+      handleSaveEntry({ ...entryData }, true);
+      return;
     }
     
     const newDateStr = format(entryData.date, 'yyyy-MM-dd');
     const oldDateStr = entryData.originalDate;
-    
     const hasDateChanged = oldDateStr && newDateStr !== oldDateStr;
-    
-    const hasCoreInfoChanged = 
-        entryData.name !== masterEntry.name || 
-        entryData.amount !== masterEntry.amount || 
-        entryData.category !== masterEntry.category ||
-        entryData.recurrence !== masterEntry.recurrence;
 
-    if (hasCoreInfoChanged) {
-        setSaveRequest({ entryData, updateAll: false });
-    } else if (hasDateChanged) {
-        setMoveRequest({ entry: { ...entryData, id: entryData.id || '' }, newDate: newDateStr });
-    } else {
+    // Case D: Recurring entry, only instance fields changed
+    if (masterEntry.recurrence !== 'none' && !hasDateChanged) {
+        const coreFields = ['name', 'amount', 'category', 'recurrence', 'recurrenceEndDate', 'recurrenceCount'];
+        const hasCoreInfoChanged = coreFields.some(field => (entryData as any)[field] !== (masterEntry as any)[field]);
+        
+        if (hasCoreInfoChanged) {
+             setSaveRequest({ entryData, updateAll: false }); // Ask user (Case C)
+             return;
+        }
+        
+        // No core fields changed, just an instance override (e.g. isPaid)
         handleSaveEntry(entryData, false);
+        return;
     }
+
+    // Case B: Recurring entry, date has changed
+    if (masterEntry.recurrence !== 'none' && hasDateChanged) {
+        setMoveRequest({ entry: { ...entryData, id: entryData.id || '' }, newDate: newDateStr });
+        return;
+    }
+
+    // Default Case (includes one-time entries with any change)
+    handleSaveEntry(entryData, true);
   };
 
   const handleSaveEntry = async (entryToSave: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }, updateAll: boolean) => {
@@ -502,7 +511,7 @@ export default function CentseiDashboard() {
   
   const handleCopyEntry = (entry: Entry) => {
     const copy = { ...entry, id: '', date: format(selectedDate, 'yyyy-MM-dd') };
-    setEditingEntry(copy);
+    setEditingEntry(copy as Entry);
     setEntryDialogOpen(true);
   }
 
@@ -1215,4 +1224,3 @@ export default function CentseiDashboard() {
     </>
   );
 }
-

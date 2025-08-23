@@ -192,7 +192,7 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
             </DialogHeader>
             <ScrollArea className="px-6">
                 <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+                <form id="entry-form" onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
                     <FormField
                     control={form.control}
                     name="type"

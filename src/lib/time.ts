@@ -9,8 +9,8 @@ import { toZonedTime, format as formatInTimeZone } from 'date-fns-tz';
  * @returns A Date object correctly representing the instant in the given timezone.
  */
 export function parseDateInTimezone(d: Date | string | number, tz: string): Date {
-  const dateStr = typeof d === 'string' ? `${d}T00:00:00` : d;
-  return toZonedTime(dateStr, tz);
+  const date = typeof d === "string" || typeof d === "number" ? new Date(d) : d;
+  return toZonedTime(date, tz);
 }
 
 /**

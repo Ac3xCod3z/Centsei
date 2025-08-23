@@ -67,7 +67,7 @@ export const aggregateData = (
 ): AggregatedDataPoint[] => {
   if (entries.length === 0) return [];
 
-  const { start, end, each, format: dateFormat } = getIntervalFunctions(granularity);
+  const { end, each, format: dateFormat } = getIntervalFunctions(granularity);
 
   const periods = each({
     start: dateRange.start,

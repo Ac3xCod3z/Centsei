@@ -333,7 +333,6 @@ export default function ViewOnlyCalendar() {
       <CentseiCalendar
         entries={data.entries}
         generatedEntries={allGeneratedEntries}
-        setEntries={() => {}} // No-op
         timezone={data.timezone}
         openNewEntryDialog={() => {}} // No-op
         setEditingEntry={() => {}} // No-op
@@ -356,6 +355,7 @@ export default function ViewOnlyCalendar() {
         onScoreInfoClick={() => {}}
         onScoreHistoryClick={() => {}}
         onDojoInfoClick={() => {}}
+        onInstancePaidToggle={() => {}}
       />
     </div>
   );
