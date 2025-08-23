@@ -107,12 +107,12 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
     } else if (entry.recurrence === 'none') {
       isPaid = entry.isPaid ?? false;
     } else {
-        const isAuto = entry.isAutoPay;
-        if ((isAuto && entry.type === 'bill') || (entry.type === 'income')) {
-          isPaid = isPastOrToday;
-        } else {
-          isPaid = false;
-        }
+      const isAuto = entry.isAutoPay;
+      if (isAuto) {
+        isPaid = isPastOrToday;
+      } else {
+        isPaid = false;
+      }
     }
 
     return {
@@ -271,7 +271,7 @@ export default function CentseiDashboard() {
 
   const senseiSays = useSenseiSays({ user });
 
-  const { position: mobileMenuPosition, fabRef: mobileMenuFabRef, handlers: mobileMenuHandlers } = useDraggableFab({
+  const { position: mobileMenuPosition, fabRef: mobileMenuFabRef, handlers: mobileMenuHandlers, isDragging: isMobileMenuDragging } = useDraggableFab({
     initialPosition: { x: 16, y: 88 }, // Bottom-left default
     onClick: () => setMobileSheetOpen(true),
   });
@@ -627,9 +627,9 @@ export default function CentseiDashboard() {
       delete (newExceptionData as any).originalDate;
       
       exceptions[oldDate] = { ...oldException, movedTo: newDate };
-      exceptions[newDate] = { ...newExceptionData, movedFrom: oldDate };
+      exceptions[newDate] = { ...stripUndefined(newExceptionData), movedFrom: oldDate };
 
-      return { ...masterEntry, exceptions };
+      return { ...masterEntry, exceptions: stripUndefined(exceptions) };
     };
 
     if (user && firestore) {
@@ -910,7 +910,7 @@ export default function CentseiDashboard() {
                         aria-label="Open Menu"
                         className={cn(
                           "h-16 w-16 rounded-full shadow-xl flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 touch-none",
-                          (mobileMenuHandlers as any).isDragging && "cursor-grabbing"
+                          isMobileMenuDragging && "cursor-grabbing"
                         )}
                       >
                          <Menu />
@@ -1001,6 +1001,12 @@ export default function CentseiDashboard() {
           }}
           onMoveRequest={(entry, newDate) => setMoveRequest({entry, newDate})}
           birthdays={birthdays}
+          budgetScore={budgetScore}
+          dojoRank={dojoRank}
+          goals={goals}
+          onScoreInfoClick={() => setScoreInfoOpen(true)}
+          onScoreHistoryClick={() => setScoreHistoryOpen(true)}
+          onDojoInfoClick={() => setDojoInfoOpen(true)}
         />
       </div>
 

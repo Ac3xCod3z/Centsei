@@ -11,17 +11,17 @@ type DraggableFabOptions = {
 export function useDraggableFab({ initialPosition = { x: 16, y: 16 }, onClick }: DraggableFabOptions) {
     const [position, setPosition] = useState(initialPosition);
     const fabRef = useRef<HTMLDivElement>(null);
-    const isDraggingRef = useRef(false);
+    const [isDragging, setIsDragging] = useState(false);
     const dragStartRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
     const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const handlers = useMemo(() => ({
         onPointerDown: (e: React.PointerEvent) => {
-            isDraggingRef.current = false;
-            // Set a short timeout. If the pointer hasn't moved, it's a click. 
-            // If it moves, the timeout is cleared and it becomes a drag.
+            if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
+            setIsDragging(false);
+            
             clickTimeoutRef.current = setTimeout(() => {
-                isDraggingRef.current = true;
+                setIsDragging(true);
                 fabRef.current?.setPointerCapture(e.pointerId);
                 dragStartRef.current = {
                     x: e.clientX,
@@ -29,10 +29,10 @@ export function useDraggableFab({ initialPosition = { x: 16, y: 16 }, onClick }:
                     posX: position.x,
                     posY: position.y,
                 };
-            }, 150); // A small delay to distinguish click from drag
+            }, 150);
         },
         onPointerMove: (e: React.PointerEvent) => {
-            if (!isDraggingRef.current) return;
+            if (!isDragging) return;
             
             const dx = e.clientX - dragStartRef.current.x;
             const dy = e.clientY - dragStartRef.current.y;
@@ -51,14 +51,14 @@ export function useDraggableFab({ initialPosition = { x: 16, y: 16 }, onClick }:
                 fabRef.current.releasePointerCapture(e.pointerId);
             }
             
-            if (!isDraggingRef.current && onClick) {
+            if (!isDragging && onClick) {
                 onClick();
             }
             
-            isDraggingRef.current = false;
+            // This needs to be slightly delayed to prevent the click event from firing after a drag
+            setTimeout(() => setIsDragging(false), 0);
         },
-        isDragging: isDraggingRef.current,
-    }), [position, onClick]);
+    }), [position, onClick, isDragging]);
 
-    return { position, fabRef, handlers };
+    return { position, fabRef, handlers, isDragging };
 }
