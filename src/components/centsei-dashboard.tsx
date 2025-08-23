@@ -521,13 +521,14 @@ export default function CentseiDashboard() {
   }
 
   const handleDeleteEntry = (entry: Entry) => {
+    if (!entry?.id) return;
     const masterId = getOriginalIdFromInstance(entry.id);
     const masterEntry = entries.find(e => e.id === masterId);
     if (!masterEntry) return;
 
     if (masterEntry.recurrence === 'none') {
         // It's a non-recurring entry, delete it directly.
-        handleDeleteConfirmed(entry.id, true);
+        handleDeleteConfirmed(masterId, true);
     } else {
         // It's a recurring entry, so we show the confirmation dialog.
         setEntryToDelete(entry);
@@ -1021,7 +1022,11 @@ export default function CentseiDashboard() {
           selectedDate={selectedDate}
           setSelectedDate={setSelectedDate}
           setEntryDialogOpen={setEntryDialogOpen}
-          handleDayInteraction={handleDayInteraction}
+          openDayEntriesDialog={(holidays, birthdays) => {
+            if(holidays.length > 0 || birthdays.length > 0 || allGeneratedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), selectedDate || new Date())).length > 0) {
+              setDayEntriesDialogOpen(true);
+            }
+          }}
           isReadOnly={false}
           weeklyBalances={weeklyBalances}
           weeklyTotals={weeklyTotals}

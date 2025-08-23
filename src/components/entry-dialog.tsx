@@ -59,7 +59,7 @@ type EntryFormProps = {
   isOpen: boolean;
   onClose: () => void;
   onSave: (entry: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }) => void;
-  onDelete?: (id: string) => void;
+  onDelete?: (entry: Entry) => void;
   onCopy?: (entry: Entry) => void;
   entry: Entry | null;
   selectedDate: Date;
@@ -155,7 +155,7 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
     if (entry && entry.id) {
       // The ID passed back is the ID of the original master entry
       const originalId = getOriginalIdFromInstance(entry.id);
-      onSave({ ...dataToSave, id: originalId });
+      onSave({ ...dataToSave, id: originalId, originalDate: entry.date });
     } else {
       // New entry or a copy (which has no id)
       onSave({ ...dataToSave, id: undefined });
@@ -163,8 +163,8 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
   }
   
   const handleDelete = () => {
-    if (entry && entry.id && onDelete) {
-        onDelete(entry.id);
+    if (entry && onDelete) {
+        onDelete(entry);
         onClose();
     }
   }
@@ -401,7 +401,7 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
                                                 <FormControl>
                                                     <Input type="number" className="w-20" placeholder="12" {...field} />
                                                 </FormControl>
-                                                <Label>occurrences</Label>
+                                                <Label className="flex-shrink-0">occurrences</Label>
                                                 <FormMessage className="ml-4"/>
                                             </FormItem>
                                         )}
