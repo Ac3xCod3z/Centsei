@@ -79,6 +79,9 @@ import { parseDateInTimezone, stripUndefined } from "@/lib/utils";
 import { useSenseiSays } from "@/lib/sensei/useSenseiSays";
 import { useBlockMobileContextMenu } from "@/hooks/use-block-mobile-contextmenu";
 import { useBodyNoCalloutToggle } from "@/hooks/use-body-no-callout-toggle";
+import { SenseiEvaluationDialog } from "./sensei-evaluation-dialog";
+import { DojoJourneyDialog } from "./dojo-journey-dialog";
+
 
 const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezone: string): Entry[] => {
   if (!entry.date) return [];
@@ -105,7 +108,13 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
       isPaid = entry.isPaid ?? false;
     } else {
         const isAuto = entry.isAutoPay;
-        isPaid = !!(isAuto && isPastOrToday);
+        if (isAuto && isPastOrToday) {
+          isPaid = true;
+        } else {
+          // This ensures that income, which doesn't have auto-pay,
+          // will also be marked as paid if its date is in the past.
+          isPaid = isPastOrToday;
+        }
     }
 
     return {
@@ -243,6 +252,8 @@ export default function CentseiDashboard() {
   const [isScoreInfoOpen, setScoreInfoOpen] = useState(false);
   const [isScoreHistoryOpen, setScoreHistoryOpen] = useState(false);
   const [isDojoInfoOpen, setDojoInfoOpen] = useState(false);
+  const [isSenseiEvalOpen, setSenseiEvalOpen] = useState(false);
+  const [isDojoJourneyOpen, setDojoJourneyOpen] = useState(false);
   
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
@@ -428,6 +439,10 @@ export default function CentseiDashboard() {
                   category: data.category === masterEntry.category ? undefined : data.category,
                 };
                 
+                if (data.type !== 'bill') {
+                    delete (exceptionData as any).category;
+                }
+                
                 exceptions[instanceDate] = { ...exceptions[instanceDate], ...stripUndefined(exceptionData) };
                 
                 if (oldDateStr && oldDateStr !== newDateStr) {
@@ -454,7 +469,10 @@ export default function CentseiDashboard() {
             
             const exceptions = { ...masterEntry.exceptions };
             const instanceDate = oldDateStr || newDateStr;
-            const exceptionData = { name: data.name, amount: data.amount, isPaid: data.isPaid, category: data.category };
+            const exceptionData: Partial<Entry> = { name: data.name, amount: data.amount, isPaid: data.isPaid };
+            if (data.type === 'bill') {
+                exceptionData.category = data.category;
+            }
             exceptions[instanceDate] = { ...exceptions[instanceDate], ...stripUndefined(exceptionData) };
             
             if(oldDateStr && oldDateStr !== newDateStr) {
@@ -878,12 +896,6 @@ export default function CentseiDashboard() {
                     <SidebarContent
                       weeklyTotals={weeklyTotals}
                       selectedDate={selectedDate}
-                      budgetScore={budgetScore}
-                      dojoRank={dojoRank}
-                      goals={goals}
-                      onScoreInfoClick={() => setScoreInfoOpen(true)}
-                      onScoreHistoryClick={() => setScoreHistoryOpen(true)}
-                      onDojoInfoClick={() => setDojoInfoOpen(true)}
                     />
                   </ScrollArea>
                 </SheetContent>
@@ -919,8 +931,8 @@ export default function CentseiDashboard() {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setScoreInfoOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setDojoInfoOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSenseiEvalOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDojoJourneyOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
                 {isMobile && (
                   <>
                     <DropdownMenuSeparator />
@@ -1054,6 +1066,19 @@ export default function CentseiDashboard() {
         <BudgetScoreInfoDialog isOpen={isScoreInfoOpen} onClose={() => setScoreInfoOpen(false)} />
         <BudgetScoreHistoryDialog isOpen={isScoreHistoryOpen} onClose={() => setScoreHistoryOpen(false)} history={budgetScoreHistory} />
         <DojoJourneyInfoDialog isOpen={isDojoInfoOpen} onClose={() => setDojoInfoOpen(false)} />
+        <SenseiEvaluationDialog 
+            isOpen={isSenseiEvalOpen} 
+            onClose={() => setSenseiEvalOpen(false)}
+            budgetScore={budgetScore}
+            onInfoClick={() => setScoreInfoOpen(true)}
+            onHistoryClick={() => setScoreHistoryOpen(true)}
+        />
+        <DojoJourneyDialog 
+            isOpen={isDojoJourneyOpen}
+            onClose={() => setDojoJourneyOpen(false)}
+            rank={dojoRank}
+            onInfoClick={() => setDojoInfoOpen(true)}
+        />
 
        <AlertDialog open={!!entryToDelete} onOpenChange={() => setEntryToDelete(null)}>
         <AlertDialogContent>

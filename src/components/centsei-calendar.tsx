@@ -494,12 +494,6 @@ export function CentseiCalendar({
     <SidebarContent 
       weeklyTotals={weeklyTotals}
       selectedDate={selectedDate}
-      budgetScore={budgetScore}
-      dojoRank={dojoRank}
-      goals={goals}
-      onScoreInfoClick={onScoreInfoClick}
-      onScoreHistoryClick={onScoreHistoryClick}
-      onDojoInfoClick={onDojoInfoClick}
     />
   )
 
@@ -708,21 +702,9 @@ function SummaryCard({ title, amount, icon, description, variant = 'default', cl
 export const SidebarContent = ({
   weeklyTotals,
   selectedDate,
-  budgetScore,
-  dojoRank,
-  goals,
-  onScoreInfoClick,
-  onScoreHistoryClick,
-  onDojoInfoClick,
 }: {
   weeklyTotals: any;
   selectedDate: Date;
-  budgetScore: BudgetScore | null;
-  dojoRank: DojoRank;
-  goals: Goal[];
-  onScoreInfoClick: () => void;
-  onScoreHistoryClick: () => void;
-  onDojoInfoClick: () => void;
 }) => {
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
@@ -739,24 +721,6 @@ export const SidebarContent = ({
               description={weeklyTotals.status >= 0 ? 'Surplus for the week' : 'Deficit for the week'}
             />
             <SummaryCard title="End of Week Balance" amount={weeklyTotals.net} variant={weeklyTotals.net >= 0 ? 'positive' : 'negative'} />
-        </div>
-
-        {(budgetScore || goals.length > 0) && <Separator />}
-
-        <div className="space-y-4">
-            {budgetScore && (
-              <BudgetScoreWidget 
-                score={budgetScore} 
-                onInfoClick={onScoreInfoClick} 
-                onHistoryClick={onScoreHistoryClick} 
-              />
-            )}
-            {goals.length > 0 && (
-              <DojoJourneyWidget 
-                rank={dojoRank} 
-                onInfoClick={onDojoInfoClick} 
-              />
-            )}
         </div>
     </div>
   );
