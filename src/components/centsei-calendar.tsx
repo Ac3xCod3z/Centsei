@@ -183,10 +183,7 @@ export function CentseiCalendar({
   
   const handleEditClick = (entry: Entry) => {
     if(isReadOnly) return;
-    const originalEntryId = getOriginalIdFromInstance(entry.id);
-    const originalEntry = entries.find(e => e.id === originalEntryId) || entry;
-    const instanceWithDate = { ...originalEntry, date: entry.date, id: entry.id };
-    setEditingEntry(instanceWithDate);
+    setEditingEntry(entry);
     setEntryDialogOpen(true);
   }
 
@@ -402,7 +399,7 @@ export function CentseiCalendar({
                         className={cn(
                             "px-2 py-1 rounded-md text-xs font-semibold flex items-center justify-between cursor-pointer", 
                             entry.isPaid ? 'bg-secondary text-muted-foreground line-through' :
-                            entry.type === 'bill' ? 'bg-destructive/10 text-card-foreground' : 'bg-emerald-500/10 text-card-foreground',
+                            entry.type === 'bill' ? 'bg-destructive/10' : 'bg-emerald-500/10',
                             draggedEntry?.id === entry.id && 'opacity-50'
                         )}
                         onClick={(e) => { e.stopPropagation(); handleEditClick(entry); }}
@@ -410,7 +407,7 @@ export function CentseiCalendar({
                         onDragStart={(e) => {e.stopPropagation(); handleDragStart(entry)}}
                         onDragEnd={handleDragEnd}
                       >
-                         <div className="flex items-center gap-1.5 truncate">
+                         <div className="flex items-center gap-1.5 truncate text-card-foreground">
                             {isSelectionMode && (
                                 <Checkbox 
                                     className="mr-1" 
@@ -432,7 +429,7 @@ export function CentseiCalendar({
                             )}
                             <span className="truncate">{entry.name}</span>
                          </div>
-                        <span>{formatCurrency(entry.amount)}</span>
+                        <span className="text-card-foreground">{formatCurrency(entry.amount)}</span>
                       </div>
                     ))}
                   </div>
