@@ -1,6 +1,7 @@
 // src/lib/move.ts
-import type { MasterEntry, ISODate, EntryException } from './types';
+import type { MasterEntry, ISODate, EntryException, Entry } from './types';
 import { stripUndefined } from './utils';
+import { format } from 'date-fns';
 
 /**
  * Moves a non-recurring (one-time) entry by changing its primary date.
@@ -30,26 +31,21 @@ export function moveSingleOccurrence(
   
     const newMaster = { ...master, exceptions: { ...(master.exceptions ?? {}) } };
   
-    // Determine the true original date of the series for the instance being moved.
-    // If we're dragging an instance that was already an exception, its 'movedFrom' points to the original date.
     const originalSourceDate = newMaster.exceptions[sourceDate]?.movedFrom ?? sourceDate;
     
-    // Clean up any pre-existing move for this original source date.
-    // This handles re-dragging a previously moved instance to a new location.
-    const oldTarget = newMaster.exceptions[originalSourceDate]?.movedTo;
+    const oldTarget = Object.entries(newMaster.exceptions).find(
+      ([date, ex]) => ex.movedFrom === originalSourceDate
+    )?.[0];
     if (oldTarget && oldTarget !== targetDate) {
         delete newMaster.exceptions[oldTarget];
     }
   
-    // Create or update the exception for the original date to point to the new target date.
     newMaster.exceptions[originalSourceDate] = { movedTo: targetDate };
   
-    // Create the exception for the new target date, marking where it came from.
-    // This preserves any overrides that might have existed on the original instance.
     const sourceOverrides = newMaster.exceptions[sourceDate];
     newMaster.exceptions[targetDate] = { 
         movedFrom: originalSourceDate,
-        ...(sourceOverrides && !sourceOverrides.movedFrom && sourceOverrides), // Carry over any specific overrides (like amount/name changes)
+        ...(sourceOverrides && !sourceOverrides.movedFrom && sourceOverrides),
     };
   
     return stripUndefined(newMaster);
@@ -65,15 +61,11 @@ export function moveSeries(
 ): MasterEntry {
   const newMaster = { ...master, date: newAnchorDate, exceptions: { ...(master.exceptions ?? {}) } };
   
-  // Clean the slate: Remove all move-related mappings.
-  // We keep other override types like 'deleted' or specific field overrides.
   const cleanedExceptions: Record<ISODate, EntryException> = {};
   for(const [date, ex] of Object.entries(newMaster.exceptions)) {
     if ('movedTo' in ex || 'movedFrom' in ex) {
-      // This is a move exception, so we discard it.
       continue;
     }
-    // This is another type of exception (e.g., deleted, override), so we keep it.
     cleanedExceptions[date] = ex;
   }
   
@@ -81,6 +73,48 @@ export function moveSeries(
 
   return stripUndefined(newMaster);
 }
+
+/** Updates the master entry for all occurrences */
+export function updateSeries(master: MasterEntry, newData: Partial<Entry>): MasterEntry {
+    const updatedMaster = { ...master };
+    
+    // Apply new top-level data
+    if(newData.name) updatedMaster.name = newData.name;
+    if(newData.amount) updatedMaster.amount = newData.amount;
+    if(newData.category) updatedMaster.category = newData.category;
+    if(newData.isAutoPay) updatedMaster.isAutoPay = newData.isAutoPay;
+    
+    // Clear out all override exceptions, as the master is the new source of truth
+    const cleanedExceptions: Record<ISODate, EntryException> = {};
+     for(const [date, ex] of Object.entries(master.exceptions ?? {})) {
+        if ('movedTo' in ex || 'movedFrom' in ex || 'movedFrom' === 'deleted') {
+            cleanedExceptions[date] = ex; // Preserve moves and deletions
+        }
+    }
+    updatedMaster.exceptions = cleanedExceptions;
+    
+    return stripUndefined(updatedMaster);
+}
+
+/** Updates a single occurrence by creating an exception */
+export function updateSingleOccurrence(master: MasterEntry, instanceDate: ISODate, newData: Partial<Entry>): MasterEntry {
+    const updatedMaster = { ...master, exceptions: { ...(master.exceptions ?? {}) } };
+    const currentException = updatedMaster.exceptions[instanceDate] || {};
+    
+    const newException: EntryException = {
+        ...currentException,
+        name: newData.name !== master.name ? newData.name : undefined,
+        amount: newData.amount !== master.amount ? newData.amount : undefined,
+        category: newData.category !== master.category ? newData.category : undefined,
+        isAutoPay: newData.isAutoPay !== master.isAutoPay ? newData.isAutoPay : undefined,
+        isPaid: newData.isPaid,
+    };
+    
+    updatedMaster.exceptions[instanceDate] = stripUndefined(newException);
+
+    return stripUndefined(updatedMaster);
+}
+
 
 /** Dev-only validator to check for data integrity after a move. */
 export function validateMaster(master: MasterEntry): void {

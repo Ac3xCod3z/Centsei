@@ -89,14 +89,14 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
       const isNew = !entry;
       const isCopy = entry && !entry.id;
       
-      let initialValues = {
+      let initialValues: z.infer<typeof formSchema> = {
         type: "bill",
         name: "",
-        amount: "" as unknown as number, // Set to empty string for placeholder behavior
+        amount: "" as any,
         date: selectedDate,
         recurrence: 'none',
-        recurrenceEndDate: undefined,
-        recurrenceCount: undefined,
+        recurrenceEndDate: null,
+        recurrenceCount: null,
         category: undefined,
         isPaid: false,
         isAutoPay: false,
@@ -107,11 +107,11 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
             ...initialValues,
             type: entry.type || "bill",
             name: entry.name || "",
-            amount: entry.amount || "" as unknown as number,
+            amount: entry.amount || ('' as any),
             date: isCopy ? selectedDate : parseDateInTimezone(entry.date, timezone),
             recurrence: entry.recurrence || 'none',
-            recurrenceEndDate: entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : undefined,
-            recurrenceCount: entry.recurrenceCount || undefined,
+            recurrenceEndDate: entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null,
+            recurrenceCount: entry.recurrenceCount || null,
             category: entry.category as BillCategory | undefined,
             isPaid: isCopy ? false : entry.isPaid ?? false,
             isAutoPay: entry.isAutoPay || false,
@@ -132,7 +132,7 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
 
 
   function onSubmit(values: z.infer<typeof formSchema>) {
-    const dataToSave: any = {
+    const dataToSave = {
       ...values,
       originalDate: entry?.date, // Pass the specific date of the instance being edited
     };
@@ -159,7 +159,9 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
       // New entry or a copy (which has no id)
       onSave({ ...dataToSave, id: undefined });
     }
-    onClose();
+    // We no longer close the dialog here, as the parent will handle it
+    // after the confirmation dialog (if any).
+    // onClose();
   }
   
   const handleDelete = () => {

@@ -82,7 +82,7 @@ import { SenseiEvaluationDialog } from "./sensei-evaluation-dialog";
 import { DojoJourneyDialog } from "./dojo-journey-dialog";
 import { cn } from "@/lib/utils";
 import { useDraggableFab } from "@/hooks/use-draggable-fab";
-import { moveOneTime, moveSeries, moveSingleOccurrence, validateMaster } from "@/lib/move";
+import { moveOneTime, moveSeries, moveSingleOccurrence, validateMaster, updateSeries, updateSingleOccurrence } from "@/lib/move";
 import { parseDateInTimezone } from "@/lib/time";
 
 
@@ -224,6 +224,11 @@ function getOriginalIdFromInstance(key: string) {
   return m ? m[1] : key;
 }
 
+type SaveRequest = {
+  entryData: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string };
+  updateAll: boolean;
+};
+
 export default function CentseiDashboard() {
   const { user, isGuest, loading: authLoading, signOut } = useAuth();
   const router = useRouter();
@@ -265,6 +270,7 @@ export default function CentseiDashboard() {
   const [selectedInstances, setSelectedInstances] = useState<SelectedInstance[]>([]);
   const [entryToDelete, setEntryToDelete] = useState<string | null>(null);
   const [moveRequest, setMoveRequest] = useState<{entry: Entry, newDate: string} | null>(null);
+  const [saveRequest, setSaveRequest] = useState<SaveRequest | null>(null);
 
 
   const { toast } = useToast();
@@ -412,92 +418,78 @@ export default function CentseiDashboard() {
       toast({ title: 'Notifications Disabled', description: 'You will no longer receive bill reminders.' });
     }
   };
+  
+  const processSaveRequest = (entryData: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }) => {
+    const masterId = entryData.id ? getOriginalIdFromInstance(entryData.id) : undefined;
+    const masterEntry = masterId ? entries.find(e => e.id === masterId) : undefined;
+    const newDateStr = format(entryData.date, 'yyyy-MM-dd');
+    const oldDateStr = entryData.originalDate;
 
-  const handleSaveEntry = async (entryToSave: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }) => {
-    const { originalDate, ...data } = entryToSave;
-    const masterId = data.id;
-    const newDateStr = format(data.date, 'yyyy-MM-dd'); // Use plain format
-    const oldDateStr = originalDate;
-    
-    const saveData: any = {
-        ...data,
-        date: newDateStr, // Always save the date as a string
-    };
+    // Check if it's a recurring entry and a core detail (not just date/paid status) has changed.
+    if (masterEntry && masterEntry.recurrence !== 'none') {
+        const hasDateChanged = oldDateStr && newDateStr !== oldDateStr;
+        const hasAmountChanged = entryData.amount !== masterEntry.amount;
+        const hasNameChanged = entryData.name !== masterEntry.name;
+        // Add other core fields as needed...
 
-    if (saveData.recurrenceEndDate && saveData.recurrenceEndDate instanceof Date) {
-        saveData.recurrenceEndDate = format(saveData.recurrenceEndDate, 'yyyy-MM-dd');
-    }
-
-    delete saveData.id; // Don't save the ID field in the document data
-
-    if (user && firestore) {
-        if (!masterId) { // New entry
-            const collectionRef = collection(firestore, 'users', user.uid, 'calendar_entries');
-            await addDoc(collectionRef, stripUndefined({ ...saveData, created_at: serverTimestamp(), updated_at: serverTimestamp() }));
-        } else { // Existing entry
-            const masterDocRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
-            const masterDoc = await getDoc(masterDocRef);
-            if (!masterDoc.exists()) return;
-
-            const masterEntry = { id: masterDoc.id, ...masterDoc.data() } as MasterEntry;
-            
-            if (masterEntry.recurrence === 'none') {
-                 // It's a simple one-time entry, so we just update its data including the date.
-                 await updateDoc(masterDocRef, stripUndefined({ ...saveData, updated_at: serverTimestamp() }));
-            } else {
-                // It's a recurring entry, so we create an exception.
-                const exceptions = { ...masterEntry.exceptions };
-                const instanceDate = oldDateStr || newDateStr;
-                
-                const exceptionData = {
-                  name: data.name === masterEntry.name ? undefined : data.name,
-                  amount: data.amount === masterEntry.amount ? undefined : data.amount,
-                  isPaid: data.isPaid,
-                  isAutoPay: data.isAutoPay === masterEntry.isAutoPay ? undefined : data.isAutoPay,
-                  category: data.category === masterEntry.category ? undefined : data.category,
-                };
-                
-                exceptions[instanceDate] = { ...exceptions[instanceDate], ...stripUndefined(exceptionData) };
-                
-                // If the date was changed for a single instance, record the move.
-                if (oldDateStr && oldDateStr !== newDateStr) {
-                   const updatedMaster = moveSingleOccurrence(masterEntry, oldDateStr, newDateStr);
-                   await updateDoc(masterDocRef, { exceptions: updatedMaster.exceptions, updated_at: serverTimestamp() });
-                } else {
-                   await updateDoc(masterDocRef, { exceptions: stripUndefined(exceptions), updated_at: serverTimestamp() });
-                }
-            }
+        if (hasAmountChanged || hasNameChanged) {
+            setSaveRequest({ entryData, updateAll: false }); // Open dialog, default to single update
+            return; 
         }
-    } else { // Local storage logic
-         setEntries(prevEntries => {
-            if (!masterId) {
-                return [...prevEntries, { ...saveData, id: crypto.randomUUID() }];
-            }
 
-            const masterEntry = prevEntries.find(e => e.id === masterId);
-            if (!masterEntry) return prevEntries;
+        if(hasDateChanged) {
+             setMoveRequest({ entry: { ...entryData, id: entryData.id || '' }, newDate: newDateStr });
+             return;
+        }
+    }
+    
+    // For non-recurring, new entries, or simple updates (like isPaid), save directly.
+    handleSaveEntry(entryData, true);
+  }
 
-            if (masterEntry.recurrence === 'none') {
-                return prevEntries.map(e => e.id === masterId ? { ...e, ...saveData, id: masterId } : e);
-            }
-            
-            if(oldDateStr && oldDateStr !== newDateStr) {
-                const updatedMaster = moveSingleOccurrence(masterEntry, oldDateStr, newDateStr);
-                return prevEntries.map(e => e.id === masterId ? updatedMaster : e);
-            } else {
-                const instanceDate = oldDateStr || newDateStr;
-                const exceptions = { ...masterEntry.exceptions };
-                const exceptionData: Partial<Entry> = { name: data.name, amount: data.amount, isPaid: data.isPaid, category: data.category, isAutoPay: data.isAutoPay };
-                exceptions[instanceDate] = { ...exceptions[instanceDate], ...stripUndefined(exceptionData) };
-                return prevEntries.map(e => e.id === masterId ? { ...e, exceptions: stripUndefined(exceptions) } : e);
-            }
-        });
+  const handleSaveEntry = async (entryToSave: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }, updateAll: boolean) => {
+    const { originalDate, ...data } = entryToSave;
+    const masterId = data.id ? getOriginalIdFromInstance(data.id) : undefined;
+    const masterEntry = masterId ? entries.find(e => e.id === masterId) : undefined;
+    
+    let updatedEntry: MasterEntry;
+
+    if (!masterEntry) { // This is a new entry
+        const saveData: any = { ...data, date: format(data.date, 'yyyy-MM-dd') };
+         if (saveData.recurrenceEndDate && saveData.recurrenceEndDate instanceof Date) {
+            saveData.recurrenceEndDate = format(saveData.recurrenceEndDate, 'yyyy-MM-dd');
+        }
+        delete saveData.id;
+        delete saveData.originalDate;
+
+        if(user && firestore) {
+            await addDoc(collection(firestore, 'users', user.uid, 'calendar_entries'), stripUndefined({ ...saveData, created_at: serverTimestamp(), updated_at: serverTimestamp() }));
+        } else {
+            setEntries(prev => [...prev, { ...saveData, id: crypto.randomUUID() }]);
+        }
+    } else { // This is an existing entry
+        if (updateAll) {
+            updatedEntry = updateSeries(masterEntry, data);
+        } else {
+            const instanceDate = originalDate || format(data.date, 'yyyy-MM-dd');
+            updatedEntry = updateSingleOccurrence(masterEntry, instanceDate, data);
+        }
+
+        validateMaster(updatedEntry);
+
+        if (user && firestore) {
+            const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
+            await updateDoc(docRef, stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
+        } else {
+            setEntries(prev => prev.map(e => e.id === masterId ? updatedEntry : e));
+        }
     }
 
     if(notificationsEnabled) scheduleNotificationsLocal(entries, timezone, toast);
     toast({ title: 'Entry Saved', description: `Your ${data.type} has been saved.` });
     setEntryDialogOpen(false);
     setEditingEntry(null);
+    setSaveRequest(null);
   };
   
   const handleCopyEntry = (entry: Entry) => {
@@ -617,7 +609,9 @@ export default function CentseiDashboard() {
 
     let updatedEntry: MasterEntry;
 
-    if (moveAll) {
+    if (masterEntry.recurrence === 'none') {
+      updatedEntry = moveOneTime(masterEntry, entryToMove.date, newDate);
+    } else if (moveAll) {
       updatedEntry = moveSeries(masterEntry, newDate);
     } else {
       updatedEntry = moveSingleOccurrence(masterEntry, entryToMove.date, newDate);
@@ -742,10 +736,16 @@ export default function CentseiDashboard() {
 
   const handleEditFromDayDialog = (entry: Entry) => {
     setDayEntriesDialogOpen(false);
+    // Find the master to make sure we have the full, non-overridden entry data
     const originalEntryId = getOriginalIdFromInstance(entry.id);
-    const originalEntry = entries.find(e => e.id === originalEntryId) || entry;
-    const instanceWithDate = { ...originalEntry, date: entry.date, id: entry.id };
-    setEditingEntry(instanceWithDate);
+    const masterEntry = entries.find(e => e.id === originalEntryId);
+    if (!masterEntry) {
+        console.error("Could not find master entry for editing:", entry.id);
+        return;
+    }
+    // Create the instance object for the dialog, combining master with instance-specific details
+    const instanceForEdit = { ...masterEntry, ...entry };
+    setEditingEntry(instanceForEdit);
     setEntryDialogOpen(true);
   };
   
@@ -981,11 +981,7 @@ export default function CentseiDashboard() {
               }
           }}
           onMoveRequest={(entry, newDate) => {
-            if (entry.recurrence === 'none') {
-                handleMoveEntry(entry, newDate, false);
-            } else {
-                setMoveRequest({entry, newDate});
-            }
+             handleMoveEntry(entry, newDate, false)
           }}
           birthdays={birthdays}
           budgetScore={budgetScore}
@@ -1000,7 +996,7 @@ export default function CentseiDashboard() {
       <EntryDialog
         isOpen={isEntryDialogOpen}
         onClose={() => setEntryDialogOpen(false)}
-        onSave={handleSaveEntry}
+        onSave={processSaveRequest}
         onCopy={handleCopyEntry}
         onDelete={handleDeleteEntry}
         entry={editingEntry}
@@ -1119,14 +1115,55 @@ export default function CentseiDashboard() {
                     You are moving a recurring entry. How would you like to apply this change?
                 </AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="space-y-3 py-4">
-               <Button className="w-full" onClick={() => moveRequest && handleMoveEntry(moveRequest.entry, moveRequest.newDate, false)}>
-                    Move This Occurrence Only
-                    <p className="font-normal text-xs text-primary-foreground/80">The rest of the series will not be affected.</p>
-               </Button>
-               <Button className="w-full" variant="secondary" onClick={() => moveRequest && handleMoveEntry(moveRequest.entry, moveRequest.newDate, true)}>
-                   Move This and All Future Occurrences
-                   <p className="font-normal text-xs text-secondary-foreground/80">This will change the recurring date for the entire series.</p>
+            <div className="flex flex-col gap-4 py-4">
+                <Button 
+                    className="h-auto"
+                    onClick={() => moveRequest && handleMoveEntry(moveRequest.entry, moveRequest.newDate, false)}>
+                    <div className="flex flex-col items-start w-full text-left p-2">
+                        <span className="font-semibold">Move This Occurrence Only</span>
+                        <span className="font-normal text-xs text-primary-foreground/80">The rest of the series will not be affected.</span>
+                    </div>
+                </Button>
+                <Button 
+                    className="h-auto"
+                    variant="secondary" onClick={() => moveRequest && handleMoveEntry(moveRequest.entry, moveRequest.newDate, true)}>
+                    <div className="flex flex-col items-start w-full text-left p-2">
+                        <span className="font-semibold">Move This and All Future Occurrences</span>
+                        <span className="font-normal text-xs text-secondary-foreground/80">This will change the recurring date for the entire series.</span>
+                    </div>
+                </Button>
+            </div>
+             <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+      </AlertDialog>
+      
+       <AlertDialog open={!!saveRequest} onOpenChange={() => setSaveRequest(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle>Update Recurring Entry</AlertDialogTitle>
+                <AlertDialogDescription>
+                    You've changed a recurring entry. How would you like to apply this change?
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="flex flex-col gap-4 py-4">
+                 <Button 
+                    className="h-auto"
+                    onClick={() => saveRequest && handleSaveEntry(saveRequest.entryData, false)}>
+                     <div className="flex flex-col items-start w-full text-left p-2">
+                        <span className="font-semibold">Update This Occurrence Only</span>
+                        <span className="font-normal text-xs text-primary-foreground/80">Creates an exception for this date, leaving the series intact.</span>
+                    </div>
+                </Button>
+                 <Button 
+                    className="h-auto"
+                    variant="secondary" 
+                    onClick={() => saveRequest && handleSaveEntry(saveRequest.entryData, true)}>
+                    <div className="flex flex-col items-start w-full text-left p-2">
+                        <span className="font-semibold">Update This and All Future Occurrences</span>
+                        <span className="font-normal text-xs text-secondary-foreground/80">Updates the master entry. This will affect all instances.</span>
+                    </div>
                 </Button>
             </div>
              <AlertDialogFooter>
