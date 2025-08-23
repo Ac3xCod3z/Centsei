@@ -165,7 +165,7 @@ export function CentseiCalendar({
     setYears(Array.from({ length: 21 }, (_, i) => currentYear - 10 + i));
   }, []);
 
-  const handleDayInteraction = (day: Date, isHold: boolean = false) => {
+  const handleDayInteraction = useCallback((day: Date, isHold: boolean = false) => {
     if (isReadOnly) return;
     setSelectedDate(day);
   
@@ -184,26 +184,26 @@ export function CentseiCalendar({
     } else {
         openNewEntryDialog(day);
     }
-  };
+  }, [isReadOnly, generatedEntries, birthdays, timezone, openNewEntryDialog, openDayEntriesDialog, setSelectedDate]);
 
-  const handlePointerDown = (e: React.PointerEvent, day: Date) => {
+  const handlePointerDown = useCallback((e: React.PointerEvent, day: Date) => {
     pointerDownRef.current = { x: e.clientX, y: e.clientY };
     holdTimeoutRef.current = setTimeout(() => {
         handleDayInteraction(day, true);
         holdTimeoutRef.current = null;
         pointerDownRef.current = null;
     }, HOLD_DURATION_MS);
-  };
+  }, [handleDayInteraction]);
 
-  const handlePointerUp = (day: Date) => {
+  const handlePointerUp = useCallback((day: Date) => {
     if (holdTimeoutRef.current) {
       clearTimeout(holdTimeoutRef.current);
       holdTimeoutRef.current = null;
       handleDayInteraction(day, false);
     }
-  };
+  }, [handleDayInteraction]);
   
-  const handlePointerMove = (e: React.PointerEvent) => {
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!pointerDownRef.current || !holdTimeoutRef.current) return;
     
     const dx = Math.abs(e.clientX - pointerDownRef.current.x);
@@ -214,16 +214,16 @@ export function CentseiCalendar({
       holdTimeoutRef.current = null;
       pointerDownRef.current = null;
     }
-  };
+  }, []);
   
-  const handleEditClick = (entry: Entry) => {
+  const handleEditClick = useCallback((entry: Entry) => {
     if(isReadOnly) return;
     // We pass the full instance data, which includes any overrides.
     setEditingEntry(entry);
     setEntryDialogOpen(true);
-  }
+  }, [isReadOnly, setEditingEntry, setEntryDialogOpen]);
 
-  const handleCheckboxChange = (instanceId: string, checked: boolean) => {
+  const handleCheckboxChange = useCallback((instanceId: string, checked: boolean) => {
     const masterId = getOriginalIdFromInstance(instanceId);
     const dateStr = instanceId.substring(masterId.length + 1);
 
@@ -237,44 +237,44 @@ export function CentseiCalendar({
             return e;
         });
     });
-  };
+  }, [setEntries]);
 
-  const handleInstanceSelection = (instance: SelectedInstance, checked: boolean) => {
+  const onSelectInstances = useCallback((instance: SelectedInstance, checked: boolean) => {
     setSelectedInstances(prev => 
         checked 
             ? [...prev, instance] 
             : prev.filter(i => i.instanceId !== instance.instanceId)
     );
-  };
+  }, [setSelectedInstances]);
 
-  const isInstanceSelected = (instanceId: string) => {
+  const isInstanceSelected = useCallback((instanceId: string) => {
     return selectedInstances.some(i => i.instanceId === instanceId);
-  }
+  }, [selectedInstances]);
   
-  const handleDragStart = (entry: Entry) => {
+  const handleDragStart = useCallback((entry: Entry) => {
       if(isReadOnly) return;
       setDraggedEntry(entry);
-  }
+  }, [isReadOnly]);
   
-  const handleDragEnd = () => {
+  const handleDragEnd = useCallback(() => {
       setDraggedEntry(null);
       setDragOverDate(null);
-  }
+  }, []);
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>, date: string) => {
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>, date: string) => {
     e.preventDefault();
     if(draggedEntry) {
         setDragOverDate(date);
     }
-  }
+  }, [draggedEntry]);
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>, date: string) => {
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>, date: string) => {
     e.preventDefault();
     if(draggedEntry && onMoveRequest) {
         onMoveRequest(draggedEntry, date);
     }
     handleDragEnd();
-  }
+  }, [draggedEntry, onMoveRequest, handleDragEnd]);
 
 
   const days = useMemo(() => eachDayOfInterval({ start: startOfWeek(startOfMonth(currentDate)), end: endOfWeek(endOfMonth(currentDate)) }), [currentDate]);
@@ -451,7 +451,7 @@ export function CentseiCalendar({
                                 <Checkbox 
                                     className="mr-1" 
                                     checked={isInstanceSelected(entry.id)}
-                                    onCheckedChange={(checked) => handleInstanceSelection({instanceId: entry.id, masterId: getOriginalIdFromInstance(entry.id), date: entry.date}, !!checked)}
+                                    onCheckedChange={(checked) => onSelectInstances({instanceId: entry.id, masterId: getOriginalIdFromInstance(entry.id), date: entry.date}, !!checked)}
                                     onClick={(e) => e.stopPropagation()}
                                 />
                             )}
