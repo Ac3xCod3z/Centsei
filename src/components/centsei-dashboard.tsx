@@ -618,19 +618,33 @@ export default function CentseiDashboard() {
     if (!masterEntry) return;
 
     let updatedEntry: Entry;
+
     if (moveAll) {
-        // Update the base entry date, clear old exceptions related to moves
-        updatedEntry = { ...masterEntry, date: newDate, exceptions: {} };
+        // Create a cleaned exceptions object, removing any prior moves.
+        const cleanedExceptions: typeof masterEntry.exceptions = {};
+        if (masterEntry.exceptions) {
+            for (const [date, ex] of Object.entries(masterEntry.exceptions)) {
+                if (ex && !ex.movedTo && !ex.movedFrom) {
+                    cleanedExceptions[date] = ex;
+                }
+            }
+        }
+        // Update the base entry date and use the cleaned exceptions
+        updatedEntry = { ...masterEntry, date: newDate, exceptions: cleanedExceptions };
     } else {
         // Create an exception for a single move
         const exceptions = { ...masterEntry.exceptions };
         const oldDate = entryToMove.date;
         
-        const newInstanceData = {
-          ...entryToMove,
+        // This is what the instance will look like on its new date
+        const newInstanceData: Partial<Entry> = {
+          name: entryToMove.name,
+          amount: entryToMove.amount,
+          category: entryToMove.category,
+          isPaid: entryToMove.isPaid,
+          isAutoPay: entryToMove.isAutoPay,
           movedFrom: oldDate
         };
-        delete (newInstanceData as any).id;
         
         exceptions[oldDate] = { ...(exceptions[oldDate] || {}), movedTo: newDate };
         exceptions[newDate] = stripUndefined(newInstanceData);
