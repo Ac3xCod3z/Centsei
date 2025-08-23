@@ -133,7 +133,7 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
 
 
   function onSubmit(values: z.infer<typeof formSchema>) {
-    const dataToSave = {
+    const dataToSave: any = {
       ...values,
       originalDate: entry?.date, // Pass the specific date of the instance being edited
     };
@@ -143,13 +143,13 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
     }
 
     if (recurrenceEndType === 'never') {
-      dataToSave.recurrenceEndDate = undefined;
-      dataToSave.recurrenceCount = undefined;
+      dataToSave.recurrenceEndDate = null;
+      dataToSave.recurrenceCount = null;
     } else if (recurrenceEndType === 'on') {
-      dataToSave.recurrenceCount = undefined;
+      dataToSave.recurrenceCount = null;
       // Do not format here, keep it as a Date object for the parent
     } else if (recurrenceEndType === 'after') {
-      dataToSave.recurrenceEndDate = undefined;
+      dataToSave.recurrenceEndDate = null;
     }
 
     if (entry && entry.id) {
@@ -175,7 +175,7 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
     }
   }
 
-  const isEditing = entry && entry.id;
+  const isEditing = entry && entry.id && getOriginalIdFromInstance(entry.id);
 
   if (!isOpen) {
     return null;

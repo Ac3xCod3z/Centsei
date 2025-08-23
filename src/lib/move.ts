@@ -75,15 +75,23 @@ export function moveSeries(
 }
 
 /** Updates the master entry for all occurrences */
-export function updateSeries(master: MasterEntry, newData: Partial<Entry>): MasterEntry {
+export function updateSeries(master: MasterEntry, newData: Partial<Omit<Entry, 'id'>> & { id?: string }): MasterEntry {
     const updatedMaster = { ...master };
     
-    // Apply new top-level data
-    if(newData.name) updatedMaster.name = newData.name;
-    if(newData.amount) updatedMaster.amount = newData.amount;
-    if(newData.category) updatedMaster.category = newData.category;
-    if(newData.isAutoPay) updatedMaster.isAutoPay = newData.isAutoPay;
+    const coreFields: (keyof typeof newData)[] = [
+        'name', 'amount', 'type', 'category', 'isAutoPay', 'recurrence', 'recurrenceEndDate', 'recurrenceCount'
+    ];
+
+    coreFields.forEach(field => {
+        if (newData[field] !== undefined) {
+            (updatedMaster as any)[field] = newData[field];
+        }
+    });
     
+    if (newData.recurrenceEndDate instanceof Date) {
+        updatedMaster.recurrenceEndDate = format(newData.recurrenceEndDate, 'yyyy-MM-dd');
+    }
+
     // Clear out all override exceptions, as the master is the new source of truth
     const cleanedExceptions: Record<ISODate, EntryException> = {};
      for(const [date, ex] of Object.entries(master.exceptions ?? {})) {

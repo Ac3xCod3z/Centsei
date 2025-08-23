@@ -452,8 +452,12 @@ export default function CentseiDashboard() {
 
         if (field === 'recurrenceEndDate') {
              const formDate = formValue ? format(formValue, 'yyyy-MM-dd') : null;
-             const masterDate = masterValue ? format(parseDateInTimezone(masterValue, timezone), 'yyyy-MM-dd') : null;
-             return formDate !== masterDate;
+             const masterDate = masterValue ? parseDateInTimezone(masterValue, timezone) : null;
+             return formDate !== (masterDate ? format(masterDate, 'yyyy-MM-dd') : null);
+        }
+        
+        if(field === 'recurrenceCount') {
+          return (formValue || null) !== (masterValue || null);
         }
 
         return formValue !== masterValue;
@@ -528,7 +532,7 @@ export default function CentseiDashboard() {
 
     if (masterEntry.recurrence === 'none') {
         // It's a non-recurring entry, delete it directly.
-        handleDeleteConfirmed(masterId, true);
+        handleDeleteConfirmed(masterEntry.id, true);
     } else {
         // It's a recurring entry, so we show the confirmation dialog.
         setEntryToDelete(entry);
@@ -771,7 +775,6 @@ export default function CentseiDashboard() {
   };
   
   const handleDayInteraction = (day: Date) => {
-    if (isMobile) return;
     const dayEntries = allGeneratedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), day));
     const dayHolidays = getHolidaysForYear(getYear(day)).filter(h => isSameDay(h.date, day));
     const dayBirthdays = birthdays.filter(b => {
@@ -1157,41 +1160,49 @@ export default function CentseiDashboard() {
         />
 
       <AlertDialog open={!!entryToDelete} onOpenChange={() => setEntryToDelete(null)}>
-          <AlertDialogContent>
-              <AlertDialogHeader>
-                  <AlertDialogTitle>Delete Recurring Entry</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This is a recurring entry. How would you like to delete it?
-                  </AlertDialogDescription>
-              </AlertDialogHeader>
-              <div className="flex flex-col gap-4 py-4">
-                  <Button
-                      className="h-auto"
-                      variant="destructive"
-                      onClick={() => {
-                        if (entryToDelete) handleDeleteConfirmed(entryToDelete.id, false);
-                      }}>
-                      <div className="flex flex-col items-start w-full text-left p-2">
-                          <span className="font-semibold">Just this one</span>
-                          <span className="font-normal text-xs text-destructive-foreground/80">Deletes only this specific occurrence.</span>
-                      </div>
-                  </Button>
-                  <Button
-                      className="h-auto"
-                      variant="secondary"
-                      onClick={() => {
-                        if (entryToDelete) handleDeleteConfirmed(entryToDelete.id, true);
-                      }}>
-                      <div className="flex flex-col items-start w-full text-left p-2">
-                          <span className="font-semibold">This and future</span>
-                          <span className="font-normal text-xs text-secondary-foreground/80">Deletes all entries in this series.</span>
-                      </div>
-                  </Button>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Recurring Entry</AlertDialogTitle>
+            <AlertDialogDescription>
+              This is a recurring entry. How would you like to delete it?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex flex-col gap-4 py-4">
+            <Button
+              className="h-auto"
+              variant="destructive"
+              onClick={() => {
+                if (entryToDelete)
+                  handleDeleteConfirmed(entryToDelete.id, false);
+              }}
+            >
+              <div className="flex flex-col items-start w-full text-left p-2">
+                <span className="font-semibold">Just this one</span>
+                <span className="font-normal text-xs text-destructive-foreground/80">
+                  Deletes only this specific occurrence.
+                </span>
               </div>
-              <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-              </AlertDialogFooter>
-          </AlertDialogContent>
+            </Button>
+            <Button
+              className="h-auto"
+              variant="secondary"
+              onClick={() => {
+                if (entryToDelete)
+                  handleDeleteConfirmed(entryToDelete.id, true);
+              }}
+            >
+              <div className="flex flex-col items-start w-full text-left p-2">
+                <span className="font-semibold">This and future</span>
+                <span className="font-normal text-xs text-secondary-foreground/80">
+                  Deletes all entries in this series.
+                </span>
+              </div>
+            </Button>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
       </AlertDialog>
       
       <AlertDialog open={!!moveRequest} onOpenChange={() => setMoveRequest(null)}>
