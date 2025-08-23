@@ -360,7 +360,7 @@ export function CentseiCalendar({
                 className={cn(
                   "h-32 sm:h-36 md:h-40 lg:h-48 xl:h-56 border rounded-lg p-2 flex flex-col transition-colors duration-200",
                   !isCurrentMonthDay && "bg-muted text-muted-foreground",
-                  isCurrentDay && "bg-accent/20 border-accent",
+                  isCurrentDay && "border-primary",
                   isDraggingOver && "bg-primary/20 ring-2 ring-primary"
                 )}
                 onClick={() => handleDayClick(day)}
@@ -398,9 +398,9 @@ export function CentseiCalendar({
                       <div
                         key={entry.id}
                         className={cn(
-                            "px-2 py-1 rounded-md text-xs font-semibold flex items-center justify-between cursor-pointer", 
+                            "px-2 py-1 rounded-md text-xs font-semibold flex items-center justify-between cursor-pointer text-card-foreground", 
                             entry.isPaid ? 'bg-secondary text-muted-foreground line-through' :
-                            entry.type === 'bill' ? 'bg-destructive/10 text-destructive' : 'bg-emerald-500/10 text-emerald-600',
+                            entry.type === 'bill' ? 'bg-destructive/10' : 'bg-emerald-500/10',
                             draggedEntry?.id === entry.id && 'opacity-50'
                         )}
                         onClick={(e) => { e.stopPropagation(); handleEditClick(entry); }}
