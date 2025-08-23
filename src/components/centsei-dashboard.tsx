@@ -425,16 +425,13 @@ export default function CentseiDashboard() {
     const newDateStr = format(entryData.date, 'yyyy-MM-dd');
     const oldDateStr = entryData.originalDate;
 
-    // Check if it's a recurring entry and a core detail (not just date/paid status) has changed.
     if (masterEntry && masterEntry.recurrence !== 'none') {
         const hasDateChanged = oldDateStr && newDateStr !== oldDateStr;
-        const hasAmountChanged = entryData.amount !== masterEntry.amount;
-        const hasNameChanged = entryData.name !== masterEntry.name;
-        // Add other core fields as needed...
+        const hasCoreInfoChanged = entryData.amount !== masterEntry.amount || entryData.name !== masterEntry.name;
 
-        if (hasAmountChanged || hasNameChanged) {
-            setSaveRequest({ entryData, updateAll: false }); // Open dialog, default to single update
-            return; 
+        if (hasCoreInfoChanged) {
+            setSaveRequest({ entryData, updateAll: false });
+            return;
         }
 
         if(hasDateChanged) {
@@ -443,7 +440,6 @@ export default function CentseiDashboard() {
         }
     }
     
-    // For non-recurring, new entries, or simple updates (like isPaid), save directly.
     handleSaveEntry(entryData, true);
   }
 
@@ -981,7 +977,11 @@ export default function CentseiDashboard() {
               }
           }}
           onMoveRequest={(entry, newDate) => {
-             handleMoveEntry(entry, newDate, false)
+            if (entry.recurrence === 'none') {
+                handleMoveEntry(entry, newDate, false);
+            } else {
+                setMoveRequest({ entry, newDate });
+            }
           }}
           birthdays={birthdays}
           budgetScore={budgetScore}
@@ -1116,8 +1116,9 @@ export default function CentseiDashboard() {
                 </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="flex flex-col gap-4 py-4">
-                <Button 
+                <Button
                     className="h-auto"
+                    variant="default"
                     onClick={() => moveRequest && handleMoveEntry(moveRequest.entry, moveRequest.newDate, false)}>
                     <div className="flex flex-col items-start w-full text-left p-2">
                         <span className="font-semibold">Move This Occurrence Only</span>
@@ -1150,6 +1151,7 @@ export default function CentseiDashboard() {
             <div className="flex flex-col gap-4 py-4">
                  <Button 
                     className="h-auto"
+                    variant="default"
                     onClick={() => saveRequest && handleSaveEntry(saveRequest.entryData, false)}>
                      <div className="flex flex-col items-start w-full text-left p-2">
                         <span className="font-semibold">Update This Occurrence Only</span>
@@ -1183,3 +1185,4 @@ export default function CentseiDashboard() {
     </>
   );
 }
+
