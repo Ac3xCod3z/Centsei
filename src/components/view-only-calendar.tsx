@@ -17,7 +17,7 @@ import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShieldAlert } from "lucide-react";
-import { parseDateInTimezone } from "@/lib/utils";
+import { parseDateInTimezone } from "@/lib/time";
 
 type SharedData = {
   entries: Entry[];
@@ -319,12 +319,6 @@ export default function ViewOnlyCalendar() {
                   <SidebarContent
                     weeklyTotals={weeklyTotals}
                     selectedDate={selectedDate}
-                    budgetScore={null}
-                    dojoRank={{ level: 0, name: 'No Rank', belt: { name: 'None', color: '' }, stripes: 0, nextMilestone: 0, nextRankName: '', progress: 0, balanceToNext: 0 }}
-                    goals={[]}
-                    onScoreInfoClick={() => {}}
-                    onScoreHistoryClick={() => {}}
-                    onDojoInfoClick={() => {}}
                   />
               </ScrollArea>
             </SheetContent>
@@ -362,5 +356,3 @@ export default function ViewOnlyCalendar() {
     </div>
   );
 }
-
-    

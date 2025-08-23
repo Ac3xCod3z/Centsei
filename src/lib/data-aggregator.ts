@@ -17,7 +17,7 @@ import {
   subDays,
 } from 'date-fns';
 import type { Entry, BillCategory } from './types';
-import { parseDateInTimezone } from './utils';
+import { parseDateInTimezone } from './time';
 
 export type Granularity = 'week' | 'month' | 'year';
 

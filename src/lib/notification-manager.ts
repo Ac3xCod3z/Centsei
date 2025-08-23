@@ -1,7 +1,8 @@
 import { Entry } from './types';
-import { formatCurrency, parseDateInTimezone } from './utils';
+import { formatCurrency } from './utils';
 import { add, isAfter, isBefore, set } from 'date-fns';
 import { recurrenceIntervalMonths } from './constants';
+import { parseDateInTimezone } from './time';
 
 const NOTIFICATION_TAG_PREFIX = 'centsei-bill-';
 const NOTIFICATION_WINDOW_DAYS = 90; // Schedule notifications for the next 90 days.

@@ -52,7 +52,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { Entry, RolloverPreference, WeeklyBalances, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent } from "@/lib/types";
+import type { Entry, RolloverPreference, WeeklyBalances, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent, MasterEntry } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
 import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO, startOfDay } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
@@ -73,7 +73,7 @@ import SenseiSaysUI from "./sensei-says-ui";
 import { useAuth } from './auth-provider';
 import { CentseiLoader } from "./centsei-loader";
 import useLocalStorage from "@/hooks/use-local-storage";
-import { parseDateInTimezone, stripUndefined } from "@/lib/utils";
+import { stripUndefined } from "@/lib/utils";
 import { useSenseiSays } from "@/lib/sensei/useSenseiSays";
 import { useBlockMobileContextMenu } from "@/hooks/use-block-mobile-contextmenu";
 import { useBodyNoCalloutToggle } from "@/hooks/use-body-no-callout-toggle";
@@ -81,6 +81,8 @@ import { SenseiEvaluationDialog } from "./sensei-evaluation-dialog";
 import { DojoJourneyDialog } from "./dojo-journey-dialog";
 import { cn } from "@/lib/utils";
 import { useDraggableFab } from "@/hooks/use-draggable-fab";
+import { moveOneTime, moveSeries, moveSingleOccurrence, validateMaster } from "@/lib/move";
+import { parseDateInTimezone } from "@/lib/time";
 
 
 const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezone: string): Entry[] => {
@@ -229,7 +231,7 @@ export default function CentseiDashboard() {
   useBlockMobileContextMenu(pathname === "/" || pathname?.startsWith("/view"));
   useBodyNoCalloutToggle();
 
-  const [entries, setEntries] = useLocalStorage<Entry[]>('centseiEntries', []);
+  const [entries, setEntries] = useLocalStorage<MasterEntry[]>('centseiEntries', []);
   const [goals, setGoals] = useLocalStorage<Goal[]>('centseiGoals', []);
   const [birthdays, setBirthdays] = useLocalStorage<Birthday[]>('centseiBirthdays', []);
   const [rolloverPreference, setRolloverPreference] = useLocalStorage<RolloverPreference>('centseiRollover', 'carryover');
@@ -297,7 +299,7 @@ export default function CentseiDashboard() {
     });
 
     const unsubEntries = onSnapshot(entriesQuery, snapshot => {
-        const cloudEntries = snapshot.docs.map(d => ({...d.data(), id: d.id } as Entry));
+        const cloudEntries = snapshot.docs.map(d => ({...d.data(), id: d.id } as MasterEntry));
         setEntries(cloudEntries);
     });
 
@@ -617,39 +619,15 @@ export default function CentseiDashboard() {
     const masterEntry = entries.find(e => e.id === masterId);
     if (!masterEntry) return;
 
-    let updatedEntry: Entry;
+    let updatedEntry: MasterEntry;
 
     if (moveAll) {
-        // Create a cleaned exceptions object, removing any prior moves.
-        const cleanedExceptions: typeof masterEntry.exceptions = {};
-        if (masterEntry.exceptions) {
-            for (const [date, ex] of Object.entries(masterEntry.exceptions)) {
-                if (ex && !ex.movedTo && !ex.movedFrom) {
-                    cleanedExceptions[date] = ex;
-                }
-            }
-        }
-        // Update the base entry date and use the cleaned exceptions
-        updatedEntry = { ...masterEntry, date: newDate, exceptions: cleanedExceptions };
+      updatedEntry = moveSeries(masterEntry, newDate);
     } else {
-        // Create an exception for a single move
-        const exceptions = { ...masterEntry.exceptions };
-        const oldDate = entryToMove.date;
-        
-        // This is what the instance will look like on its new date
-        const newInstanceData: Partial<Entry> = {
-          name: entryToMove.name,
-          amount: entryToMove.amount,
-          category: entryToMove.category,
-          isPaid: entryToMove.isPaid,
-          isAutoPay: entryToMove.isAutoPay,
-          movedFrom: oldDate
-        };
-        
-        exceptions[oldDate] = { ...(exceptions[oldDate] || {}), movedTo: newDate };
-        exceptions[newDate] = stripUndefined(newInstanceData);
-        updatedEntry = { ...masterEntry, exceptions: stripUndefined(exceptions) };
+      updatedEntry = moveSingleOccurrence(masterEntry, entryToMove.date, newDate);
     }
+     
+    validateMaster(updatedEntry);
 
     if (user && firestore) {
       const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);

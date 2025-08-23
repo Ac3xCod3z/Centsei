@@ -49,7 +49,7 @@ import useLocalStorage from "@/hooks/use-local-storage";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { getCalendarAccessToken } from "@/lib/calendar-auth";
 import { exportEntries, createCentseiCalendar, deleteCentseiEvents, type CentseiEntryForCalendar } from "@/lib/google-calendar-helpers";
-import { parseDateInTimezone } from "@/lib/utils";
+import { parseDateInTimezone } from "@/lib/time";
 import { generateIcsContent } from "@/lib/ics-generator";
 
 const formSchema = z.object({
@@ -593,5 +593,3 @@ export function SettingsDialog({
     </Dialog>
   );
 }
-
-    

@@ -36,7 +36,7 @@ import type { Entry, CategoryDisplayPreference, BillCategory } from "@/lib/types
 import { BillCategories, RecurrenceOptions, CategoryEmojis } from "@/lib/types";
 import { Checkbox } from "./ui/checkbox";
 import useLocalStorage from "@/hooks/use-local-storage";
-import { parseDateInTimezone } from "@/lib/utils";
+import { parseDateInTimezone } from "@/lib/time";
 import { Separator } from "./ui/separator";
 import { Label } from "@/components/ui/label";
 

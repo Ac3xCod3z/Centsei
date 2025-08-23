@@ -27,7 +27,7 @@ import { ChevronLeft, ChevronRight, Plus, Trash2, TrendingUp, TrendingDown, Repe
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn, formatCurrency, parseDateInTimezone } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import type { Entry, WeeklyBalances, SelectedInstance, Birthday, Holiday, BudgetScore, DojoRank, Goal } from "@/lib/types";
 import { Checkbox } from "./ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -38,6 +38,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/t
 import { BudgetScoreWidget } from "./budget-score-widget";
 import { DojoJourneyWidget } from "./dojo-journey-widget";
 import { Separator } from "./ui/separator";
+import { parseDateInTimezone } from "@/lib/time";
 
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

@@ -11,7 +11,7 @@ import {
 } from 'date-fns';
 import type { Entry, Birthday, Granularity } from './types';
 import { getHolidaysForYear } from './holidays';
-import { parseDateInTimezone } from './utils';
+import { parseDateInTimezone } from './time';
 
 export type ForecastDataPoint = {
   date: string; // Period start date 'YYYY-MM-DD'
