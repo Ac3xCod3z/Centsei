@@ -43,6 +43,7 @@ import { parseDateInTimezone } from "@/lib/time";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const HOLD_DURATION_MS = 500; // 500ms for press-and-hold
 
 function getOriginalIdFromInstance(key: string) {
   const m = key.match(/^(.*)-(\d{4})-(\d{2})-(\d{2})$/);
@@ -155,6 +156,8 @@ export function CentseiCalendar({
 
   const [draggedEntry, setDraggedEntry] = useState<Entry | null>(null);
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+  const holdTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
 
 
   useEffect(() => {
@@ -162,10 +165,10 @@ export function CentseiCalendar({
     setYears(Array.from({ length: 21 }, (_, i) => currentYear - 10 + i));
   }, []);
 
-  const handleDayClick = (day: Date) => {
+  const handleDayInteraction = (day: Date, isHold: boolean = false) => {
     if (isReadOnly) return;
     setSelectedDate(day);
-
+  
     const dayEntries = generatedEntries.filter(e => isSameDay(parseDateInTimezone(e.date, timezone), day));
     const dayHolidays = getHolidaysForYear(getYear(day)).filter(h => isSameDay(h.date, day));
     const dayBirthdays = birthdays.filter(b => {
@@ -174,17 +177,51 @@ export function CentseiCalendar({
         return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
     });
 
-    if (dayEntries.length > 0 || dayHolidays.length > 0 || dayBirthdays.length > 0) {
+    const hasContent = dayEntries.length > 0 || dayHolidays.length > 0 || dayBirthdays.length > 0;
+
+    if (isHold || hasContent) {
         openDayEntriesDialog(dayHolidays, dayBirthdays);
     } else {
         openNewEntryDialog(day);
+    }
+  };
+
+  const handlePointerDown = (e: React.PointerEvent, day: Date) => {
+    pointerDownRef.current = { x: e.clientX, y: e.clientY };
+    holdTimeoutRef.current = setTimeout(() => {
+        handleDayInteraction(day, true);
+        holdTimeoutRef.current = null;
+        pointerDownRef.current = null;
+    }, HOLD_DURATION_MS);
+  };
+
+  const handlePointerUp = (day: Date) => {
+    if (holdTimeoutRef.current) {
+      clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+      handleDayInteraction(day, false);
+    }
+  };
+  
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!pointerDownRef.current || !holdTimeoutRef.current) return;
+    
+    const dx = Math.abs(e.clientX - pointerDownRef.current.x);
+    const dy = Math.abs(e.clientY - pointerDownRef.current.y);
+    
+    if (dx > 5 || dy > 5) {
+      clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+      pointerDownRef.current = null;
     }
   };
   
   const handleEditClick = (entry: Entry) => {
     if(isReadOnly) return;
     // We pass the full instance data, which includes any overrides.
-    setEditingEntry(entry);
+    const masterId = getOriginalIdFromInstance(entry.id);
+    const masterEntry = entries.find(e => e.id === masterId);
+    setEditingEntry({ ...masterEntry, ...entry });
     setEntryDialogOpen(true);
   }
 
@@ -365,7 +402,10 @@ export function CentseiCalendar({
                   isCurrentDay && "border-primary",
                   isDraggingOver && "bg-primary/20 ring-2 ring-primary"
                 )}
-                onClick={() => handleDayClick(day)}
+                onPointerDown={(e) => handlePointerDown(e, day)}
+                onPointerUp={() => handlePointerUp(day)}
+                onPointerMove={handlePointerMove}
+                onPointerCancel={() => holdTimeoutRef.current && clearTimeout(holdTimeoutRef.current)}
                 onDragOver={(e) => handleDragOver(e, dateKey)}
                 onDrop={(e) => handleDrop(e, dateKey)}
               >
