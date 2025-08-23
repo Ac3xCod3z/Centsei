@@ -447,19 +447,23 @@ export function CentseiCalendar({
                         onDragEnd={handleDragEnd}
                       >
                          <div className="flex items-center gap-1.5 truncate text-card-foreground">
-                            {isSelectionMode && (
+                            {isSelectionMode ? (
                                 <Checkbox 
                                     className="mr-1" 
                                     checked={isInstanceSelected(entry.id)}
                                     onCheckedChange={(checked) => onSelectInstances({instanceId: entry.id, masterId: getOriginalIdFromInstance(entry.id), date: entry.date}, !!checked)}
                                     onClick={(e) => e.stopPropagation()}
                                 />
-                            )}
-                            {entry.isPaid ? (
-                                <Check className="h-3 w-3 mr-1 flex-shrink-0" />
+                            ) : entry.type === 'bill' ? (
+                                <Checkbox
+                                    className="mr-1"
+                                    checked={entry.isPaid}
+                                    onCheckedChange={(checked) => handleCheckboxChange(entry.id, !!checked)}
+                                    onClick={(e) => e.stopPropagation()}
+                                />
                             ) : (
-                                <Image 
-                                    src={entry.type === 'bill' ? '/bills.png' : '/income.png'}
+                                 <Image 
+                                    src={'/income.png'}
                                     alt={entry.type}
                                     width={12}
                                     height={12}
