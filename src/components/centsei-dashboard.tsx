@@ -1,3 +1,4 @@
+
 // src/components/centsei-dashboard.tsx
 "use client";
 
@@ -277,6 +278,7 @@ export default function CentseiDashboard() {
   const isMobile = useMedia("(max-width: 1024px)", false);
   const [isMobileSheetOpen, setMobileSheetOpen] = useState(false);
   const jsConfettiRef = useRef<JSConfetti | null>(null);
+  const settingsLoadedRef = useRef<string | null>(null);
 
   const senseiSays = useSenseiSays({ user });
 
@@ -289,6 +291,7 @@ export default function CentseiDashboard() {
   useEffect(() => {
     if (!user) {
         // If user logs out, the useLocalStorage hooks will take over.
+        settingsLoadedRef.current = null; // Reset for potential re-login
         return;
     }
     const entriesQuery = query(collection(firestore, 'users', user.uid, 'calendar_entries'));
@@ -297,11 +300,15 @@ export default function CentseiDashboard() {
     
     const settingsDocRef = doc(firestore, 'users', user.uid);
     const unsubSettings = onSnapshot(settingsDocRef, (doc) => {
+        // Prevent infinite loop by only setting state once
+        if (settingsLoadedRef.current === user.uid) return;
+
         const settings = doc.data()?.settings;
         if (settings) {
             if (settings.rolloverPreference) setRolloverPreference(settings.rolloverPreference);
             if (settings.timezone) setTimezone(settings.timezone);
             if (settings.notificationsEnabled !== undefined) setNotificationsEnabled(settings.notificationsEnabled);
+            settingsLoadedRef.current = user.uid; // Mark as loaded
         }
     });
 
@@ -423,11 +430,13 @@ export default function CentseiDashboard() {
     const masterId = entryData.id ? getOriginalIdFromInstance(entryData.id) : undefined;
     const masterEntry = masterId ? entries.find(e => e.id === masterId) : undefined;
     
+    // New entries or one-time entries are saved directly
     if (!masterEntry || masterEntry.recurrence === 'none') {
-        handleSaveEntry(entryData, true);
+        handleSaveEntry(entryData, true); // updateAll=true for one-time entries effectively just saves them
         return;
     }
     
+    // For recurring entries, determine if it's just a date change or a core info change
     const newDateStr = format(entryData.date, 'yyyy-MM-dd');
     const oldDateStr = entryData.originalDate;
     
@@ -437,17 +446,15 @@ export default function CentseiDashboard() {
                              entryData.category !== masterEntry.category;
 
     if (hasCoreInfoChanged) {
-        setSaveRequest({ entryData, updateAll: false });
-        return;
-    }
-
-    if (hasDateChanged) {
+        // If amount/name/etc changes, always ask the user what to do
+        setSaveRequest({ entryData, updateAll: false }); // updateAll is determined by user choice in dialog
+    } else if (hasDateChanged) {
+        // If only the date changes, treat it as a move
         setMoveRequest({ entry: { ...entryData, id: entryData.id || '' }, newDate: newDateStr });
-        return;
+    } else {
+        // If only `isPaid` or other non-core, non-date fields change, treat it as a single occurrence update.
+        handleSaveEntry(entryData, false);
     }
-    
-    // If only isPaid or other non-core fields change, treat it as a single occurrence update.
-    handleSaveEntry(entryData, false);
   };
 
   const handleSaveEntry = async (entryToSave: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }, updateAll: boolean) => {
@@ -1192,3 +1199,4 @@ export default function CentseiDashboard() {
     </>
   );
 }
+
