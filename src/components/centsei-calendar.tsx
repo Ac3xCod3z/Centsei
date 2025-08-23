@@ -83,7 +83,7 @@ type CentseiCalendarProps = {
 };
 
 
-export function SidebarContent({ weeklyTotals, selectedDate }: Pick<CentseiCalendarProps, 'weeklyTotals' | 'selectedDate'>) {
+export function SidebarContent({ weeklyTotals, selectedDate }: { weeklyTotals: CentseiCalendarProps['weeklyTotals'], selectedDate: Date }) {
     
     return (
         <div className="p-4 md:p-6 space-y-6">
@@ -417,6 +417,13 @@ export function CentseiCalendar({
                                     onClick={(e) => e.stopPropagation()}
                                 />
                             )}
+                            <Image 
+                                src={entry.type === 'bill' ? '/bills.png' : '/income.png'}
+                                alt={entry.type}
+                                width={12}
+                                height={12}
+                                className="mr-1"
+                            />
                             <span className="truncate">{entry.name}</span>
                          </div>
                         <span>{formatCurrency(entry.amount)}</span>
