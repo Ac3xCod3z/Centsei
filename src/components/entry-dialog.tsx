@@ -155,7 +155,7 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
       dataToSave.recurrenceCount = undefined;
     } else if (recurrenceEndType === 'on') {
       dataToSave.recurrenceCount = undefined;
-      dataToSave.recurrenceEndDate = values.recurrenceEndDate ? format(values.recurrenceEndDate, 'yyyy-MM-dd') : undefined;
+      // Do not format here, keep it as a Date object for the parent
     } else if (recurrenceEndType === 'after') {
       dataToSave.recurrenceEndDate = undefined;
     }
