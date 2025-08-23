@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -347,7 +348,7 @@ export function SettingsDialog({
         setTimeout(() => setHasCopied(false), 2000); // Reset icon after 2s
     }, (err) => {
         console.error('Could not copy text: ', err);
-        toast({ title: "Copy Failed", description: "Could not copy the link to your clipboard.", variant: "destructive" });
+        toast({ title: "Copy Failed", description: "Could not copy link. Your browser may be blocking this action for security reasons.", variant: "destructive" });
     });
   };
 

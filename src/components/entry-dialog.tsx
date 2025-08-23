@@ -90,14 +90,14 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
       const isNew = !entry;
       const isCopy = entry && !entry.id;
       
-      let initialValues: z.infer<typeof formSchema> = {
+      let initialValues: Omit<z.infer<typeof formSchema>, 'amount' | 'recurrenceCount'> & { amount: any, recurrenceCount: any } = {
         type: "bill",
         name: "",
         amount: "" as any,
         date: selectedDate,
         recurrence: 'none',
         recurrenceEndDate: null,
-        recurrenceCount: null,
+        recurrenceCount: '',
         category: undefined,
         isPaid: false,
         isAutoPay: false,
@@ -112,7 +112,7 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
             date: isCopy ? selectedDate : parseDateInTimezone(entry.date, timezone),
             recurrence: entry.recurrence || 'none',
             recurrenceEndDate: entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null,
-            recurrenceCount: entry.recurrenceCount || null,
+            recurrenceCount: entry.recurrenceCount || '',
             category: entry.category as BillCategory | undefined,
             isPaid: isCopy ? false : entry.isPaid ?? false,
             isAutoPay: entry.isAutoPay || false,
