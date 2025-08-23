@@ -86,7 +86,6 @@ type CentseiCalendarProps = {
 
 
 export function SidebarContent({ weeklyTotals, selectedDate }: { weeklyTotals: CentseiCalendarProps['weeklyTotals'], selectedDate: Date }) {
-    
     return (
         <div className="p-4 md:p-6 space-y-6">
             <Card>
@@ -168,8 +167,7 @@ export function CentseiCalendar({
 
   const handleDayInteraction = useCallback((day: Date) => {
     if (isReadOnly) return;
-    setSelectedDate(day);
-
+    
     const dayEntries = generatedEntries.filter(e => isSameDay(parseDateInTimezone(e.date, timezone), day));
     const dayHolidays = getHolidaysForYear(getYear(day)).filter(h => isSameDay(h.date, day));
     const dayBirthdays = birthdays.filter(b => {
@@ -183,29 +181,32 @@ export function CentseiCalendar({
     if (hasContent) {
       openDayEntriesDialog(dayHolidays, dayBirthdays);
     }
-  }, [isReadOnly, generatedEntries, birthdays, timezone, openDayEntriesDialog, setSelectedDate]);
+  }, [isReadOnly, generatedEntries, birthdays, timezone, openDayEntriesDialog]);
 
 
   const handlePointerDown = useCallback((e: React.PointerEvent, day: Date) => {
+    if (isReadOnly) return;
+    setSelectedDate(day);
     pointerDownRef.current = { x: e.clientX, y: e.clientY };
+
+    // For both mobile and desktop, a long-press will open the dialog if there's content.
     holdTimeoutRef.current = setTimeout(() => {
         handleDayInteraction(day);
         holdTimeoutRef.current = null;
         pointerDownRef.current = null;
     }, HOLD_DURATION_MS);
-  }, [handleDayInteraction]);
+  }, [isReadOnly, setSelectedDate, handleDayInteraction]);
 
   const handlePointerUp = useCallback((day: Date) => {
     if (holdTimeoutRef.current) {
       clearTimeout(holdTimeoutRef.current);
       holdTimeoutRef.current = null;
     }
-    // For non-mobile, a simple click/pointer up should trigger interaction.
-    // On mobile, this prevents the click from firing after a long-press scroll.
+    // On desktop (not mobile), a simple click should trigger the dialog immediately if content exists.
     if (!isMobile) {
         handleDayInteraction(day);
     }
-  }, [handleDayInteraction, isMobile]);
+  }, [isMobile, handleDayInteraction]);
   
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!pointerDownRef.current || !holdTimeoutRef.current) return;
@@ -213,6 +214,7 @@ export function CentseiCalendar({
     const dx = Math.abs(e.clientX - pointerDownRef.current.x);
     const dy = Math.abs(e.clientY - pointerDownRef.current.y);
     
+    // If the pointer moves more than a few pixels, it's a scroll, not a long press.
     if (dx > 5 || dy > 5) {
       clearTimeout(holdTimeoutRef.current);
       holdTimeoutRef.current = null;
@@ -385,9 +387,9 @@ export function CentseiCalendar({
                 key={dateKey}
                 className={cn(
                   "h-32 sm:h-36 md:h-40 lg:h-48 xl:h-56 border rounded-lg p-2 flex flex-col transition-colors duration-200 group relative",
-                  !isCurrentMonthDay && "bg-muted text-muted-foreground",
-                  isCurrentDay && "border-primary",
+                  !isCurrentMonthDay && "bg-muted/50 text-muted-foreground",
                   isSelectedDay && "bg-primary/10 border-primary/50",
+                  isCurrentDay && !isSelectedDay && "border-primary",
                   isDraggingOver && "bg-primary/20 ring-2 ring-primary"
                 )}
                 onPointerDown={(e) => handlePointerDown(e, day)}
@@ -398,17 +400,19 @@ export function CentseiCalendar({
                 onDrop={(e) => handleDrop(e, dateKey)}
               >
                 <div className="flex justify-between items-center mb-1">
-                  <time dateTime={dateKey} className={cn("font-semibold", isCurrentDay && "text-primary")}>
+                  <time dateTime={dateKey} className={cn("font-semibold", isCurrentDay && !isSelectedDay && "text-primary")}>
                     {format(day, "d")}
                   </time>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity absolute top-1 right-1"
-                    onClick={(e) => { e.stopPropagation(); openNewEntryDialog(day); }}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
+                  {!isReadOnly && (
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity absolute top-1 right-1"
+                        onClick={(e) => { e.stopPropagation(); openNewEntryDialog(day); }}
+                    >
+                        <Plus className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
                 <ScrollArea className="flex-1 -mr-2 pr-2">
                   <div className="space-y-1">
@@ -431,7 +435,7 @@ export function CentseiCalendar({
                             entry.type === 'bill' ? 'bg-destructive/10' : 'bg-emerald-500/10',
                             draggedEntry?.id === entry.id && 'opacity-50'
                         )}
-                        onClick={() => handleEditClick(entry)}
+                        onClick={(e) => { e.stopPropagation(); handleEditClick(entry); }}
                         draggable={!isReadOnly}
                         onDragStart={(e) => {e.stopPropagation(); handleDragStart(entry)}}
                         onDragEnd={handleDragEnd}
@@ -445,12 +449,14 @@ export function CentseiCalendar({
                                     onClick={(e) => e.stopPropagation()}
                                 />
                             ) : entry.isPaid ? (
-                                <Check className="h-4 w-4 text-muted-foreground mr-1 flex-shrink-0" />
+                                <Check className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                             ) : entry.type === 'bill' ? (
                                  <Checkbox
                                     className="mr-1"
                                     checked={entry.isPaid}
-                                    onCheckedChange={(checked) => onInstancePaidToggle(entry.id, !!checked)}
+                                    onCheckedChange={(checked) => {
+                                        onInstancePaidToggle(entry.id, !!checked);
+                                    }}
                                     onClick={(e) => e.stopPropagation()}
                                 />
                             ) : (
@@ -459,7 +465,7 @@ export function CentseiCalendar({
                                     alt={entry.type}
                                     width={12}
                                     height={12}
-                                    className="mr-1 flex-shrink-0"
+                                    className="flex-shrink-0"
                                 />
                             )}
                             <span className={cn("truncate", entry.isPaid && "line-through")}>{entry.name}</span>
@@ -478,7 +484,7 @@ export function CentseiCalendar({
         <aside className="w-1/3 max-w-sm border-l overflow-y-auto hidden lg:block bg-secondary/50">
            <SidebarContent 
                 weeklyTotals={weeklyTotals} 
-                selectedDate={currentDate}
+                selectedDate={selectedDate || new Date()}
             />
         </aside>
       )}
