@@ -422,31 +422,38 @@ export default function CentseiDashboard() {
   const processSaveRequest = (entryData: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }) => {
     const masterId = entryData.id ? getOriginalIdFromInstance(entryData.id) : undefined;
     const masterEntry = masterId ? entries.find(e => e.id === masterId) : undefined;
-    const newDateStr = format(entryData.date, 'yyyy-MM-dd');
-    const oldDateStr = entryData.originalDate;
-
-    if (masterEntry && masterEntry.recurrence !== 'none') {
-        const hasDateChanged = oldDateStr && newDateStr !== oldDateStr;
-        const hasCoreInfoChanged = entryData.amount !== masterEntry.amount || entryData.name !== masterEntry.name;
-
-        if (hasCoreInfoChanged) {
-            setSaveRequest({ entryData, updateAll: false });
-            return;
-        }
-
-        if(hasDateChanged) {
-             setMoveRequest({ entry: { ...entryData, id: entryData.id || '' }, newDate: newDateStr });
-             return;
-        }
+    
+    if (!masterEntry || masterEntry.recurrence === 'none') {
+        handleSaveEntry(entryData, true);
+        return;
     }
     
-    handleSaveEntry(entryData, true);
-  }
+    const newDateStr = format(entryData.date, 'yyyy-MM-dd');
+    const oldDateStr = entryData.originalDate;
+    
+    const hasDateChanged = oldDateStr && newDateStr !== oldDateStr;
+    const hasCoreInfoChanged = entryData.amount !== masterEntry.amount || 
+                             entryData.name !== masterEntry.name || 
+                             entryData.category !== masterEntry.category;
+
+    if (hasCoreInfoChanged) {
+        setSaveRequest({ entryData, updateAll: false });
+        return;
+    }
+
+    if (hasDateChanged) {
+        setMoveRequest({ entry: { ...entryData, id: entryData.id || '' }, newDate: newDateStr });
+        return;
+    }
+    
+    // If only isPaid or other non-core fields change, treat it as a single occurrence update.
+    handleSaveEntry(entryData, false);
+  };
 
   const handleSaveEntry = async (entryToSave: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }, updateAll: boolean) => {
     const { originalDate, ...data } = entryToSave;
     const masterId = data.id ? getOriginalIdFromInstance(data.id) : undefined;
-    const masterEntry = masterId ? entries.find(e => e.id === masterId) : undefined;
+    let masterEntry = masterId ? entries.find(e => e.id === masterId) : undefined;
     
     let updatedEntry: MasterEntry;
 
@@ -1185,4 +1192,3 @@ export default function CentseiDashboard() {
     </>
   );
 }
-
