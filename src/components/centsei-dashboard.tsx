@@ -82,7 +82,7 @@ import { SenseiEvaluationDialog } from "./sensei-evaluation-dialog";
 import { DojoJourneyDialog } from "./dojo-journey-dialog";
 import { cn } from "@/lib/utils";
 import { useDraggableFab } from "@/hooks/use-draggable-fab";
-import { moveOneTime, moveSeries, moveSingleOccurrence, validateMaster, updateSeries, updateSingleOccurrence } from "@/lib/move";
+import { moveOneTime, moveSeries, moveSingleOccurrence, validateMaster, updateSeries, updateSingleOccurrence, deleteSeries, deleteSingleOccurrence } from "@/lib/move";
 import { parseDateInTimezone } from "@/lib/time";
 
 
@@ -268,7 +268,7 @@ export default function CentseiDashboard() {
   
   const [isSelectionMode, setSelectionMode] = useState(false);
   const [selectedInstances, setSelectedInstances] = useState<SelectedInstance[]>([]);
-  const [entryToDelete, setEntryToDelete] = useState<string | null>(null);
+  const [entryToDelete, setEntryToDelete] = useState<Entry | null>(null);
   const [moveRequest, setMoveRequest] = useState<{entry: Entry, newDate: string} | null>(null);
   const [saveRequest, setSaveRequest] = useState<SaveRequest | null>(null);
 
@@ -520,41 +520,46 @@ export default function CentseiDashboard() {
     setEntryDialogOpen(true);
   }
 
-  const handleDeleteEntry = async (instanceId: string) => {
-    const masterId = getOriginalIdFromInstance(instanceId);
-    
-    if (user && firestore) {
-        const masterDocRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
-        const masterDoc = await getDoc(masterDocRef);
-        if (!masterDoc.exists()) return;
-        const masterEntry = masterDoc.data() as MasterEntry;
+  const handleDeleteEntry = (entry: Entry) => {
+    const masterId = getOriginalIdFromInstance(entry.id);
+    const masterEntry = entries.find(e => e.id === masterId);
+    if (!masterEntry) return;
 
-        if (masterEntry.recurrence === 'none') {
+    if (masterEntry.recurrence === 'none') {
+        // It's a non-recurring entry, delete it directly.
+        handleDeleteConfirmed(entry.id, true);
+    } else {
+        // It's a recurring entry, so we show the confirmation dialog.
+        setEntryToDelete(entry);
+    }
+  };
+
+  const handleDeleteConfirmed = async (instanceOrMasterId: string, deleteAll: boolean) => {
+    const masterId = getOriginalIdFromInstance(instanceOrMasterId);
+    const masterEntry = entries.find(e => e.id === masterId);
+    if (!masterEntry) return;
+
+    if (deleteAll) {
+        // Delete the entire series
+        if (user && firestore) {
+            const masterDocRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
             await deleteDoc(masterDocRef);
         } else {
-            const instanceDate = instanceId.substring(masterId.length + 1);
-            const exceptions = { ...masterEntry.exceptions };
-            exceptions[instanceDate] = { ...exceptions[instanceDate], movedFrom: "deleted" };
-            await updateDoc(masterDocRef, { exceptions });
+            setEntries(prevEntries => prevEntries.filter(e => e.id !== masterId));
         }
     } else {
-       setEntries(prevEntries => {
-            const masterEntry = prevEntries.find(e => e.id === masterId);
-            if (!masterEntry) return prevEntries;
-
-            if (masterEntry.recurrence === 'none') {
-                return prevEntries.filter(e => e.id !== masterId);
-            } else {
-                const instanceDate = instanceId.substring(masterId.length + 1);
-                const exceptions = { ...masterEntry.exceptions };
-                exceptions[instanceDate] = { ...exceptions[instanceDate], movedFrom: "deleted" };
-                return prevEntries.map(e => e.id === masterId ? { ...e, exceptions } : e);
-            }
-        });
+        // Delete just this one occurrence
+        const updatedEntry = deleteSingleOccurrence(masterEntry, instanceOrMasterId.substring(masterId.length + 1));
+        if (user && firestore) {
+            const masterDocRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
+            await updateDoc(masterDocRef, stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
+        } else {
+            setEntries(prev => prev.map(e => (e.id === masterId ? updatedEntry : e)));
+        }
     }
     
     setEntryToDelete(null);
-    setEntryDialogOpen(false);
+    setEntryDialogOpen(false); // Close the entry dialog if it was open
     toast({ title: 'Entry Deleted' });
   };
   
@@ -764,14 +769,18 @@ export default function CentseiDashboard() {
     setEntryDialogOpen(true);
   };
   
-  const openDayEntriesDialog = (holidays: Holiday[], dayBirthdays: Birthday[]) => {
-    if (!selectedDate) return;
-    const dayEntries = allGeneratedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), selectedDate));
-    
-    if (dayEntries.length > 0 || holidays.length > 0 || dayBirthdays.length > 0) {
+  const handleDayInteraction = (day: Date) => {
+    if (isMobile) return;
+    const dayEntries = allGeneratedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), day));
+    const dayHolidays = getHolidaysForYear(getYear(day)).filter(h => isSameDay(h.date, day));
+    const dayBirthdays = birthdays.filter(b => {
+      if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
+      const [bMonth, bDay] = b.date.split('-').map(Number);
+      return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
+    });
+
+    if (dayEntries.length > 0 || dayHolidays.length > 0 || dayBirthdays.length > 0) {
       setDayEntriesDialogOpen(true);
-    } else {
-      openNewEntryDialog(selectedDate);
     }
   };
 
@@ -1012,7 +1021,7 @@ export default function CentseiDashboard() {
           selectedDate={selectedDate}
           setSelectedDate={setSelectedDate}
           setEntryDialogOpen={setEntryDialogOpen}
-          openDayEntriesDialog={openDayEntriesDialog}
+          handleDayInteraction={handleDayInteraction}
           isReadOnly={false}
           weeklyBalances={weeklyBalances}
           weeklyTotals={weeklyTotals}
@@ -1142,19 +1151,42 @@ export default function CentseiDashboard() {
             onInfoClick={() => setDojoInfoOpen(true)}
         />
 
-       <AlertDialog open={!!entryToDelete} onOpenChange={() => setEntryToDelete(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this entry?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete this specific entry. Are you sure?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => entryToDelete && handleDeleteEntry(entryToDelete)}>Delete</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
+      <AlertDialog open={!!entryToDelete} onOpenChange={() => setEntryToDelete(null)}>
+          <AlertDialogContent>
+              <AlertDialogHeader>
+                  <AlertDialogTitle>Delete Recurring Entry</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This is a recurring entry. How would you like to delete it?
+                  </AlertDialogDescription>
+              </AlertDialogHeader>
+              <div className="flex flex-col gap-4 py-4">
+                  <Button
+                      className="h-auto"
+                      variant="destructive"
+                      onClick={() => {
+                        if (entryToDelete) handleDeleteConfirmed(entryToDelete.id, false);
+                      }}>
+                      <div className="flex flex-col items-start w-full text-left p-2">
+                          <span className="font-semibold">Just this one</span>
+                          <span className="font-normal text-xs text-destructive-foreground/80">Deletes only this specific occurrence.</span>
+                      </div>
+                  </Button>
+                  <Button
+                      className="h-auto"
+                      variant="secondary"
+                      onClick={() => {
+                        if (entryToDelete) handleDeleteConfirmed(entryToDelete.id, true);
+                      }}>
+                      <div className="flex flex-col items-start w-full text-left p-2">
+                          <span className="font-semibold">This and future</span>
+                          <span className="font-normal text-xs text-secondary-foreground/80">Deletes all entries in this series.</span>
+                      </div>
+                  </Button>
+              </div>
+              <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+              </AlertDialogFooter>
+          </AlertDialogContent>
       </AlertDialog>
       
       <AlertDialog open={!!moveRequest} onOpenChange={() => setMoveRequest(null)}>
@@ -1162,7 +1194,7 @@ export default function CentseiDashboard() {
             <AlertDialogHeader>
                 <AlertDialogTitle>Move Recurring Entry</AlertDialogTitle>
                 <AlertDialogDescription>
-                    You are moving a recurring entry. How would you like to apply this change?
+                    This is a recurring entry. How would you like to move it?
                 </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="flex flex-col gap-4 py-4">
@@ -1171,16 +1203,16 @@ export default function CentseiDashboard() {
                     variant="default"
                     onClick={() => moveRequest && handleMoveEntry(moveRequest.entry, moveRequest.newDate, false)}>
                     <div className="flex flex-col items-start w-full text-left p-2">
-                        <span className="font-semibold">Move This Occurrence Only</span>
-                        <span className="font-normal text-xs text-primary-foreground/80">The rest of the series will not be affected.</span>
+                        <span className="font-semibold">Just this one</span>
+                        <span className="font-normal text-xs text-primary-foreground/80">Moves this occurrence to the new date.</span>
                     </div>
                 </Button>
                 <Button 
                     className="h-auto"
                     variant="secondary" onClick={() => moveRequest && handleMoveEntry(moveRequest.entry, moveRequest.newDate, true)}>
                     <div className="flex flex-col items-start w-full text-left p-2">
-                        <span className="font-semibold">Move This and All Future Occurrences</span>
-                        <span className="font-normal text-xs text-secondary-foreground/80">This will change the recurring date for the entire series.</span>
+                        <span className="font-semibold">This and future</span>
+                        <span className="font-normal text-xs text-secondary-foreground/80">Moves the entire series to the new date.</span>
                     </div>
                 </Button>
             </div>
@@ -1195,7 +1227,7 @@ export default function CentseiDashboard() {
             <AlertDialogHeader>
                 <AlertDialogTitle>Update Recurring Entry</AlertDialogTitle>
                 <AlertDialogDescription>
-                    You've changed a recurring entry. How would you like to apply this change?
+                    This is a recurring entry. How would you like to apply this change?
                 </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="flex flex-col gap-4 py-4">
@@ -1204,8 +1236,8 @@ export default function CentseiDashboard() {
                     variant="default"
                     onClick={() => saveRequest && handleSaveEntry(saveRequest.entryData, false)}>
                      <div className="flex flex-col items-start w-full text-left p-2">
-                        <span className="font-semibold">Update This Occurrence Only</span>
-                        <span className="font-normal text-xs text-primary-foreground/80">Creates an exception for this date, leaving the series intact.</span>
+                        <span className="font-semibold">Just this one</span>
+                        <span className="font-normal text-xs text-primary-foreground/80">Applies changes to this occurrence only.</span>
                     </div>
                 </Button>
                  <Button 
@@ -1213,8 +1245,8 @@ export default function CentseiDashboard() {
                     variant="secondary" 
                     onClick={() => saveRequest && handleSaveEntry(saveRequest.entryData, true)}>
                     <div className="flex flex-col items-start w-full text-left p-2">
-                        <span className="font-semibold">Update This and All Future Occurrences</span>
-                        <span className="font-normal text-xs text-secondary-foreground/80">Updates the master entry. This will affect all instances.</span>
+                        <span className="font-semibold">This and future</span>
+                        <span className="font-normal text-xs text-secondary-foreground/80">Updates all entries in this series.</span>
                     </div>
                 </Button>
             </div>

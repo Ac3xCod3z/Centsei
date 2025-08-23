@@ -138,3 +138,30 @@ export function validateMaster(master: MasterEntry): void {
     }
   }
 }
+
+/** Deletes the entire series by simply deleting the master entry */
+export function deleteSeries(master: MasterEntry): MasterEntry | null {
+  // The logic for this is handled in the dashboard by deleting the doc.
+  // This function is a placeholder for consistency.
+  return null;
+}
+
+/** Deletes a single occurrence by creating a 'deleted' exception */
+export function deleteSingleOccurrence(master: MasterEntry, instanceDate: ISODate): MasterEntry {
+  const updatedMaster = { ...master, exceptions: { ...(master.exceptions ?? {}) } };
+  const currentException = updatedMaster.exceptions[instanceDate] || {};
+  
+  updatedMaster.exceptions[instanceDate] = {
+    ...currentException,
+    movedFrom: 'deleted',
+  };
+  
+  // Clean up other properties that are now irrelevant
+  delete updatedMaster.exceptions[instanceDate].movedTo;
+  delete updatedMaster.exceptions[instanceDate].isPaid;
+  delete updatedMaster.exceptions[instanceDate].name;
+  delete updatedMaster.exceptions[instanceDate].amount;
+  delete updatedMaster.exceptions[instanceDate].category;
+
+  return stripUndefined(updatedMaster);
+}
