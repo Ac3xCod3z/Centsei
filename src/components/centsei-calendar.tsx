@@ -28,7 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn, formatCurrency } from "@/lib/utils";
-import type { Entry, WeeklyBalances, SelectedInstance, Birthday, Holiday, BudgetScore, DojoRank, Goal } from "@/lib/types";
+import type { Entry, WeeklyBalances, SelectedInstance, Birthday, Holiday, BudgetScore, DojoRank, Goal, MasterEntry } from "@/lib/types";
 import { Checkbox } from "./ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -51,9 +51,8 @@ function getOriginalIdFromInstance(key: string) {
 }
 
 type CentseiCalendarProps = {
-    entries: Entry[];
+    entries: MasterEntry[];
     generatedEntries: Entry[];
-    setEntries: (value: Entry[] | ((val: Entry[]) => Entry[])) => void;
     timezone: string;
     openNewEntryDialog: (date: Date) => void;
     setEditingEntry: (entry: Entry | null) => void;
@@ -82,6 +81,7 @@ type CentseiCalendarProps = {
     onScoreInfoClick: () => void;
     onScoreHistoryClick: () => void;
     onDojoInfoClick: () => void;
+    onInstancePaidToggle: (instanceId: string, isPaid: boolean) => void;
 };
 
 
@@ -125,7 +125,6 @@ export function SidebarContent({ weeklyTotals, selectedDate }: { weeklyTotals: C
 export function CentseiCalendar({
     entries,
     generatedEntries,
-    setEntries,
     timezone,
     openNewEntryDialog,
     setEditingEntry,
@@ -148,6 +147,7 @@ export function CentseiCalendar({
     onScoreInfoClick,
     onScoreHistoryClick,
     onDojoInfoClick,
+    onInstancePaidToggle,
 }: CentseiCalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [years, setYears] = useState<number[]>([]);
@@ -222,22 +222,6 @@ export function CentseiCalendar({
     setEditingEntry(entry);
     setEntryDialogOpen(true);
   }, [isReadOnly, setEditingEntry, setEntryDialogOpen]);
-
-  const handleCheckboxChange = useCallback((instanceId: string, checked: boolean) => {
-    const masterId = getOriginalIdFromInstance(instanceId);
-    const dateStr = instanceId.substring(masterId.length + 1);
-
-    setEntries(prevEntries => {
-        return prevEntries.map(e => {
-            if (e.id === masterId) {
-                const exceptions = { ...e.exceptions };
-                exceptions[dateStr] = { ...exceptions[dateStr], isPaid: checked };
-                return { ...e, exceptions };
-            }
-            return e;
-        });
-    });
-  }, [setEntries]);
 
   const onSelectInstances = useCallback((instance: SelectedInstance, checked: boolean) => {
     setSelectedInstances(prev => 
@@ -441,7 +425,7 @@ export function CentseiCalendar({
                             entry.type === 'bill' ? 'bg-destructive/10' : 'bg-emerald-500/10',
                             draggedEntry?.id === entry.id && 'opacity-50'
                         )}
-                        onClick={(e) => { e.stopPropagation(); handleEditClick(entry); }}
+                        onClick={() => handleEditClick(entry)}
                         draggable={!isReadOnly}
                         onDragStart={(e) => {e.stopPropagation(); handleDragStart(entry)}}
                         onDragEnd={handleDragEnd}
@@ -458,7 +442,7 @@ export function CentseiCalendar({
                                 <Checkbox
                                     className="mr-1"
                                     checked={entry.isPaid}
-                                    onCheckedChange={(checked) => handleCheckboxChange(entry.id, !!checked)}
+                                    onCheckedChange={(checked) => onInstancePaidToggle(entry.id, !!checked)}
                                     onClick={(e) => e.stopPropagation()}
                                 />
                             ) : (

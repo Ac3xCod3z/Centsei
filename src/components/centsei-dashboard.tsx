@@ -430,29 +430,27 @@ export default function CentseiDashboard() {
     const masterId = entryData.id ? getOriginalIdFromInstance(entryData.id) : undefined;
     const masterEntry = masterId ? entries.find(e => e.id === masterId) : undefined;
     
-    // New entries or one-time entries are saved directly
     if (!masterEntry || masterEntry.recurrence === 'none') {
-        handleSaveEntry(entryData, true); // updateAll=true for one-time entries effectively just saves them
+        handleSaveEntry(entryData, true);
         return;
     }
     
-    // For recurring entries, determine if it's just a date change or a core info change
     const newDateStr = format(entryData.date, 'yyyy-MM-dd');
     const oldDateStr = entryData.originalDate;
     
     const hasDateChanged = oldDateStr && newDateStr !== oldDateStr;
-    const hasCoreInfoChanged = entryData.amount !== masterEntry.amount || 
-                             entryData.name !== masterEntry.name || 
-                             entryData.category !== masterEntry.category;
+    
+    const hasCoreInfoChanged = 
+        entryData.name !== masterEntry.name || 
+        entryData.amount !== masterEntry.amount || 
+        entryData.category !== masterEntry.category ||
+        entryData.recurrence !== masterEntry.recurrence;
 
     if (hasCoreInfoChanged) {
-        // If amount/name/etc changes, always ask the user what to do
-        setSaveRequest({ entryData, updateAll: false }); // updateAll is determined by user choice in dialog
+        setSaveRequest({ entryData, updateAll: false });
     } else if (hasDateChanged) {
-        // If only the date changes, treat it as a move
         setMoveRequest({ entry: { ...entryData, id: entryData.id || '' }, newDate: newDateStr });
     } else {
-        // If only `isPaid` or other non-core, non-date fields change, treat it as a single occurrence update.
         handleSaveEntry(entryData, false);
     }
   };
@@ -640,6 +638,24 @@ export default function CentseiDashboard() {
     toast({ title: 'Entry Moved', description: `Moved to ${format(parseDateInTimezone(newDate, timezone), 'MMM d, yyyy')}` });
   };
   
+  const handleInstancePaidToggle = async (instanceId: string, isPaid: boolean) => {
+    const masterId = getOriginalIdFromInstance(instanceId);
+    const masterEntry = entries.find(e => e.id === masterId);
+    if (!masterEntry) return;
+    
+    const instanceDate = instanceId.substring(masterId.length + 1);
+    
+    // Create an exception for this one instance
+    const updatedEntry = updateSingleOccurrence(masterEntry, instanceDate, { isPaid });
+    
+    if (user && firestore) {
+        const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
+        await updateDoc(docRef, stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
+    } else {
+        setEntries(prev => prev.map(e => (e.id === masterId ? updatedEntry : e)));
+    }
+  };
+
   const handleSaveGoal = async (goal: Omit<Goal, 'id'> & { id?: string }) => {
     if (user) {
         if (goal.id) {
@@ -971,7 +987,6 @@ export default function CentseiDashboard() {
         <CentseiCalendar
           entries={entries}
           generatedEntries={allGeneratedEntries}
-          setEntries={setEntries}
           timezone={timezone}
           openNewEntryDialog={openNewEntryDialog}
           setEditingEntry={setEditingEntry}
@@ -1004,6 +1019,7 @@ export default function CentseiDashboard() {
           onScoreInfoClick={() => setScoreInfoOpen(true)}
           onScoreHistoryClick={() => setScoreHistoryOpen(true)}
           onDojoInfoClick={() => setDojoInfoOpen(true)}
+          onInstancePaidToggle={handleInstancePaidToggle}
         />
       </div>
 
