@@ -439,29 +439,34 @@ export default function CentseiDashboard() {
     const oldDateStr = entryData.originalDate;
     const hasDateChanged = oldDateStr && newDateStr !== oldDateStr;
 
-    // Case D: Recurring entry, only instance fields changed
-    if (masterEntry.recurrence !== 'none' && !hasDateChanged) {
-        const coreFields = ['name', 'amount', 'category', 'recurrence', 'recurrenceEndDate', 'recurrenceCount'];
-        const hasCoreInfoChanged = coreFields.some(field => (entryData as any)[field] !== (masterEntry as any)[field]);
-        
-        if (hasCoreInfoChanged) {
-             setSaveRequest({ entryData, updateAll: false }); // Ask user (Case C)
-             return;
-        }
-        
-        // No core fields changed, just an instance override (e.g. isPaid)
-        handleSaveEntry(entryData, false);
-        return;
-    }
-
     // Case B: Recurring entry, date has changed
     if (masterEntry.recurrence !== 'none' && hasDateChanged) {
         setMoveRequest({ entry: { ...entryData, id: entryData.id || '' }, newDate: newDateStr });
         return;
     }
 
-    // Default Case (includes one-time entries with any change)
-    handleSaveEntry(entryData, true);
+    // Check for core field changes
+    const coreFields: (keyof Entry)[] = ['name', 'amount', 'category', 'recurrence', 'recurrenceEndDate', 'recurrenceCount', 'type'];
+    const hasCoreInfoChanged = coreFields.some(field => {
+        const formValue = (entryData as any)[field];
+        const masterValue = (masterEntry as any)[field];
+
+        if (field === 'recurrenceEndDate') {
+             const formDate = formValue ? format(formValue, 'yyyy-MM-dd') : null;
+             const masterDate = masterValue ? format(parseDateInTimezone(masterValue, timezone), 'yyyy-MM-dd') : null;
+             return formDate !== masterDate;
+        }
+
+        return formValue !== masterValue;
+    });
+
+    if (masterEntry.recurrence !== 'none' && hasCoreInfoChanged) { // Case C
+        setSaveRequest({ entryData, updateAll: false }); // Ask user
+        return;
+    }
+
+    // Case D: Recurring entry, only instance fields changed (or it's a one-time entry)
+    handleSaveEntry(entryData, masterEntry.recurrence === 'none');
   };
 
   const handleSaveEntry = async (entryToSave: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }, updateAll: boolean) => {
@@ -815,8 +820,8 @@ export default function CentseiDashboard() {
   
   const budgetScore = useMemo(() => {
       if (allGeneratedEntries.length === 0) return null;
-      return calculateBudgetScore(allGeneratedEntries);
-  }, [allGeneratedEntries]);
+      return calculateBudgetScore(allGeneratedEntries, timezone);
+  }, [allGeneratedEntries, timezone]);
 
   const dojoRank = useMemo(() => {
     const primaryGoal = goals.length > 0 ? goals[0] : null;
@@ -824,7 +829,7 @@ export default function CentseiDashboard() {
   }, [goals]);
   
   const seasonalEvents = useMemo(() => {
-    const now = new Date();
+    const now = parseDateInTimezone(new Date(), timezone);
     const next30Days = add(now, {days: 30});
     const holidays = getHolidaysForYear(getYear(now));
     
@@ -854,7 +859,7 @@ export default function CentseiDashboard() {
     })
     
     return events;
-  }, [birthdays]);
+  }, [birthdays, timezone]);
   
 
   useEffect(() => {

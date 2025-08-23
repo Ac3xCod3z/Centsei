@@ -4,6 +4,7 @@ import { subDays, format, isWithinInterval } from "date-fns";
 import type { Entry, BudgetScore, Rank } from "./types";
 import { Award, Shield, Gem, Crown, Anchor } from 'lucide-react';
 import React from 'react';
+import { parseDateInTimezone } from "./time";
 
 const DEBT_CATEGORIES = ["loans", "credit cards"];
 
@@ -27,11 +28,11 @@ export const getRank = (score: number): Rank => {
   return { title: "Novice", icon: React.createElement(Anchor, { className }) };
 };
 
-export const calculateBudgetScore = (entries: Entry[]): BudgetScore => {
-  const today = new Date();
+export const calculateBudgetScore = (entries: Entry[], timezone: string): BudgetScore => {
+  const today = parseDateInTimezone(new Date(), timezone);
   const thirtyDaysAgo = subDays(today, 30);
 
-  const relevantEntries = entries.filter(e => isWithinInterval(new Date(e.date), { start: thirtyDaysAgo, end: today }));
+  const relevantEntries = entries.filter(e => isWithinInterval(parseDateInTimezone(e.date, timezone), { start: thirtyDaysAgo, end: today }));
 
   const totalIncome = relevantEntries
     .filter(e => e.type === 'income')

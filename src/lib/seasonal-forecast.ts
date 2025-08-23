@@ -58,7 +58,7 @@ export const generateSeasonalForecast = (
 
   // 2. Generate forecast for each period in the date range (monthly for now)
   const periods = eachMonthOfInterval(dateRange);
-  const currentYear = new Date().getFullYear();
+  const currentYear = parseDateInTimezone(new Date(), timezone).getFullYear();
   const holidays = getHolidaysForYear(currentYear);
 
   return periods.map(periodStart => {
