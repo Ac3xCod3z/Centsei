@@ -9,7 +9,15 @@ import { toZonedTime, format as formatInTimeZone } from 'date-fns-tz';
  * @returns A Date object correctly representing the instant in the given timezone.
  */
 export function parseDateInTimezone(d: Date | string | number, tz: string): Date {
-  const date = typeof d === "string" || typeof d === "number" ? new Date(d) : d;
+  if (typeof d === 'string') {
+    // For "YYYY-MM-DD" strings, prevent UTC conversion issues by appending a neutral time.
+    const [year, month, day] = d.split('-').map(Number);
+    // Create a date that is timezone-agnostic at the start, then zone it.
+    // This avoids the issue of new Date('2024-08-12') becoming midnight UTC.
+    const localDate = new Date(year, month - 1, day, 12, 0, 0); // Use noon to avoid DST edge cases
+    return toZonedTime(localDate, tz);
+  }
+  const date = typeof d === "number" ? new Date(d) : d;
   return toZonedTime(date, tz);
 }
 
