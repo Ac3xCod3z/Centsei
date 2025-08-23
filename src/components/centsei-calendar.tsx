@@ -163,6 +163,9 @@ export function CentseiCalendar({
 
   const handleDayClick = (day: Date) => {
     if (isReadOnly) return;
+    setSelectedDate(day);
+
+    const dayEntries = generatedEntries.filter(e => isSameDay(parseDateInTimezone(e.date, timezone), day));
     const dayHolidays = getHolidaysForYear(getYear(day)).filter(h => isSameDay(h.date, day));
     const dayBirthdays = birthdays.filter(b => {
         if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
@@ -170,8 +173,11 @@ export function CentseiCalendar({
         return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
     });
 
-    openDayEntriesDialog(dayHolidays, dayBirthdays);
-    setSelectedDate(day);
+    if (dayEntries.length > 0 || dayHolidays.length > 0 || dayBirthdays.length > 0) {
+        openDayEntriesDialog(dayHolidays, dayBirthdays);
+    } else {
+        openNewEntryDialog(day);
+    }
   };
   
   const handleEditClick = (entry: Entry) => {
@@ -347,9 +353,6 @@ export function CentseiCalendar({
             const dayHolidays = holidaysByDate.get(dateKey) || [];
             const dayBirthdays = birthdaysByDate.get(format(day, 'MM-dd')) || [];
             
-            const weekKey = format(startOfWeek(day), 'yyyy-MM-dd');
-            const weeklyBalance = weeklyBalances[weekKey]?.start ?? 0;
-            
             const isCurrentMonthDay = isSameMonth(day, currentDate);
             const isCurrentDay = isToday(day);
             const isDraggingOver = dragOverDate === dateKey && !!draggedEntry;
@@ -358,7 +361,7 @@ export function CentseiCalendar({
               <div
                 key={dateKey}
                 className={cn(
-                  "h-32 sm:h-36 md:h-40 lg:h-48 xl:h-56 border rounded-lg p-2 flex flex-col transition-colors duration-200",
+                  "h-32 sm:h-36 md:h-40 lg:h-48 xl:h-56 border rounded-lg p-2 flex flex-col transition-colors duration-200 group relative",
                   !isCurrentMonthDay && "bg-muted text-muted-foreground",
                   isCurrentDay && "border-primary",
                   isDraggingOver && "bg-primary/20 ring-2 ring-primary"
@@ -371,16 +374,14 @@ export function CentseiCalendar({
                   <time dateTime={dateKey} className={cn("font-semibold", isCurrentDay && "text-primary")}>
                     {format(day, "d")}
                   </time>
-                  {isSameDay(startOfWeek(day), day) && (
-                    <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <span className="text-xs text-muted-foreground">{formatCurrency(weeklyBalance)}</span>
-                            </TooltipTrigger>
-                            <TooltipContent><p>Starting balance for this week.</p></TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>
-                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity absolute top-1 right-1"
+                    onClick={(e) => { e.stopPropagation(); openNewEntryDialog(day); }}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
                 </div>
                 <ScrollArea className="flex-1 -mr-2 pr-2">
                   <div className="space-y-1">
@@ -398,9 +399,9 @@ export function CentseiCalendar({
                       <div
                         key={entry.id}
                         className={cn(
-                            "px-2 py-1 rounded-md text-xs font-semibold flex items-center justify-between cursor-pointer text-card-foreground", 
+                            "px-2 py-1 rounded-md text-xs font-semibold flex items-center justify-between cursor-pointer", 
                             entry.isPaid ? 'bg-secondary text-muted-foreground line-through' :
-                            entry.type === 'bill' ? 'bg-destructive/10' : 'bg-emerald-500/10',
+                            entry.type === 'bill' ? 'bg-destructive/10 text-card-foreground' : 'bg-emerald-500/10 text-card-foreground',
                             draggedEntry?.id === entry.id && 'opacity-50'
                         )}
                         onClick={(e) => { e.stopPropagation(); handleEditClick(entry); }}
@@ -417,13 +418,17 @@ export function CentseiCalendar({
                                     onClick={(e) => e.stopPropagation()}
                                 />
                             )}
-                            <Image 
-                                src={entry.type === 'bill' ? '/bills.png' : '/income.png'}
-                                alt={entry.type}
-                                width={12}
-                                height={12}
-                                className="mr-1"
-                            />
+                            {entry.isPaid ? (
+                                <Check className="h-3 w-3 mr-1 flex-shrink-0" />
+                            ) : (
+                                <Image 
+                                    src={entry.type === 'bill' ? '/bills.png' : '/income.png'}
+                                    alt={entry.type}
+                                    width={12}
+                                    height={12}
+                                    className="mr-1 flex-shrink-0"
+                                />
+                            )}
                             <span className="truncate">{entry.name}</span>
                          </div>
                         <span>{formatCurrency(entry.amount)}</span>
