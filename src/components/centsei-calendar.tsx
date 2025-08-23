@@ -1,4 +1,3 @@
-
 // src/components/centsei-calendar.tsx
 "use client";
 
@@ -165,31 +164,30 @@ export function CentseiCalendar({
     setYears(Array.from({ length: 21 }, (_, i) => currentYear - 10 + i));
   }, []);
 
-  const handleDayInteraction = useCallback((day: Date, isHold: boolean = false) => {
+  const handleDayInteraction = useCallback((day: Date) => {
     if (isReadOnly) return;
     setSelectedDate(day);
-  
+
     const dayEntries = generatedEntries.filter(e => isSameDay(parseDateInTimezone(e.date, timezone), day));
     const dayHolidays = getHolidaysForYear(getYear(day)).filter(h => isSameDay(h.date, day));
     const dayBirthdays = birthdays.filter(b => {
-        if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
-        const [bMonth, bDay] = b.date.split('-').map(Number);
-        return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
+      if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
+      const [bMonth, bDay] = b.date.split('-').map(Number);
+      return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
     });
 
     const hasContent = dayEntries.length > 0 || dayHolidays.length > 0 || dayBirthdays.length > 0;
 
-    if (isHold || hasContent) {
-        openDayEntriesDialog(dayHolidays, dayBirthdays);
-    } else {
-        openNewEntryDialog(day);
+    if (hasContent) {
+      openDayEntriesDialog(dayHolidays, dayBirthdays);
     }
-  }, [isReadOnly, generatedEntries, birthdays, timezone, openNewEntryDialog, openDayEntriesDialog, setSelectedDate]);
+  }, [isReadOnly, generatedEntries, birthdays, timezone, openDayEntriesDialog, setSelectedDate]);
+
 
   const handlePointerDown = useCallback((e: React.PointerEvent, day: Date) => {
     pointerDownRef.current = { x: e.clientX, y: e.clientY };
     holdTimeoutRef.current = setTimeout(() => {
-        handleDayInteraction(day, true);
+        handleDayInteraction(day);
         holdTimeoutRef.current = null;
         pointerDownRef.current = null;
     }, HOLD_DURATION_MS);
@@ -199,7 +197,7 @@ export function CentseiCalendar({
     if (holdTimeoutRef.current) {
       clearTimeout(holdTimeoutRef.current);
       holdTimeoutRef.current = null;
-      handleDayInteraction(day, false);
+      handleDayInteraction(day);
     }
   }, [handleDayInteraction]);
   
@@ -438,8 +436,10 @@ export function CentseiCalendar({
                                     onCheckedChange={(checked) => onSelectInstances({instanceId: entry.id, masterId: getOriginalIdFromInstance(entry.id), date: entry.date}, !!checked)}
                                     onClick={(e) => e.stopPropagation()}
                                 />
+                            ) : entry.isPaid ? (
+                                <Check className="h-4 w-4 text-muted-foreground mr-1 flex-shrink-0" />
                             ) : entry.type === 'bill' ? (
-                                <Checkbox
+                                 <Checkbox
                                     className="mr-1"
                                     checked={entry.isPaid}
                                     onCheckedChange={(checked) => onInstancePaidToggle(entry.id, !!checked)}
