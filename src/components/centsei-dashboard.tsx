@@ -1,4 +1,3 @@
-
 // src/components/centsei-dashboard.tsx
 "use client";
 
@@ -262,7 +261,7 @@ export default function CentseiDashboard() {
   const [isSenseiEvalOpen, setSenseiEvalOpen] = useState(false);
   const [isDojoJourneyOpen, setDojoJourneyOpen] = useState(false);
   
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [weeklyBalances, setWeeklyBalances] = useState<WeeklyBalances>({});
@@ -300,7 +299,7 @@ export default function CentseiDashboard() {
     
     const settingsDocRef = doc(firestore, 'users', user.uid);
     const unsubSettings = onSnapshot(settingsDocRef, (doc) => {
-        // Prevent infinite loop by only setting state once
+        // Prevent infinite loop by only setting state once per user login
         if (settingsLoadedRef.current === user.uid) return;
 
         const settings = doc.data()?.settings;
@@ -515,6 +514,7 @@ export default function CentseiDashboard() {
   };
   
   const handleCopyEntry = (entry: Entry) => {
+    if (!selectedDate) return;
     const copy = { ...entry, id: '', date: format(selectedDate, 'yyyy-MM-dd') };
     setEditingEntry(copy as Entry);
     setEntryDialogOpen(true);
@@ -765,6 +765,7 @@ export default function CentseiDashboard() {
   };
   
   const openDayEntriesDialog = (holidays: Holiday[], dayBirthdays: Birthday[]) => {
+    if (!selectedDate) return;
     const dayEntries = allGeneratedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), selectedDate));
     
     if (dayEntries.length > 0 || holidays.length > 0 || dayBirthdays.length > 0) {
@@ -790,11 +791,15 @@ export default function CentseiDashboard() {
   };
   
   const handleAddFromDayDialog = () => {
+    if (!selectedDate) return;
     setDayEntriesDialogOpen(false);
     openNewEntryDialog(selectedDate);
   }
 
   const weeklyTotals = useMemo(() => {
+    if (!selectedDate) {
+        return { income: 0, bills: 0, net: 0, startOfWeekBalance: 0, status: 0 };
+    }
     const weekStart = startOfWeek(selectedDate);
     const weekKey = format(weekStart, 'yyyy-MM-dd');
     
@@ -939,13 +944,13 @@ export default function CentseiDashboard() {
                     </SheetTrigger>
                     <SheetContent side="left" className="p-0 flex flex-col w-3/4">
                       <SheetHeader className="p-4 border-b">
-                        <SheetTitle>Week of {format(startOfWeek(selectedDate), "MMM d")}</SheetTitle>
+                        <SheetTitle>Week of {selectedDate ? format(startOfWeek(selectedDate), "MMM d") : ''}</SheetTitle>
                       </SheetHeader>
                       <ScrollArea className="flex-1">
-                        <SidebarContent
+                        {selectedDate && <SidebarContent
                           weeklyTotals={weeklyTotals}
                           selectedDate={selectedDate}
-                        />
+                        />}
                       </ScrollArea>
                     </SheetContent>
                   </Sheet>
@@ -1004,6 +1009,7 @@ export default function CentseiDashboard() {
           timezone={timezone}
           openNewEntryDialog={openNewEntryDialog}
           setEditingEntry={setEditingEntry}
+          selectedDate={selectedDate}
           setSelectedDate={setSelectedDate}
           setEntryDialogOpen={setEntryDialogOpen}
           openDayEntriesDialog={openDayEntriesDialog}
@@ -1044,7 +1050,7 @@ export default function CentseiDashboard() {
         onCopy={handleCopyEntry}
         onDelete={handleDeleteEntry}
         entry={editingEntry}
-        selectedDate={selectedDate}
+        selectedDate={selectedDate || new Date()}
         timezone={timezone}
       />
       <SettingsDialog
@@ -1063,7 +1069,7 @@ export default function CentseiDashboard() {
         birthdays={birthdays}
         onBirthdaysChange={setBirthdays}
       />
-       <DayEntriesDialog
+       {selectedDate && <DayEntriesDialog
         isOpen={isDayEntriesDialogOpen}
         onClose={() => setDayEntriesDialogOpen(false)}
         date={selectedDate}
@@ -1077,7 +1083,7 @@ export default function CentseiDashboard() {
         onAddEntry={handleAddFromDayDialog}
         onEditEntry={handleEditFromDayDialog}
         onReorder={handleReorder}
-      />
+      />}
       <MonthlyBreakdownDialog
         isOpen={isMonthlyBreakdownOpen}
         onClose={() => setMonthlyBreakdownOpen(false)}

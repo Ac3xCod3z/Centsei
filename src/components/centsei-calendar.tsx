@@ -55,7 +55,8 @@ type CentseiCalendarProps = {
     timezone: string;
     openNewEntryDialog: (date: Date) => void;
     setEditingEntry: (entry: Entry | null) => void;
-    setSelectedDate: (date: Date) => void;
+    selectedDate: Date | null;
+    setSelectedDate: (date: Date | null) => void;
     setEntryDialogOpen: (isOpen: boolean) => void;
     openDayEntriesDialog: (holidays: Holiday[], birthdays: Birthday[]) => void;
     isReadOnly: boolean;
@@ -127,6 +128,7 @@ export function CentseiCalendar({
     timezone,
     openNewEntryDialog,
     setEditingEntry,
+    selectedDate,
     setSelectedDate,
     setEntryDialogOpen,
     openDayEntriesDialog,
@@ -197,9 +199,13 @@ export function CentseiCalendar({
     if (holdTimeoutRef.current) {
       clearTimeout(holdTimeoutRef.current);
       holdTimeoutRef.current = null;
-      handleDayInteraction(day);
     }
-  }, [handleDayInteraction]);
+    // For non-mobile, a simple click/pointer up should trigger interaction.
+    // On mobile, this prevents the click from firing after a long-press scroll.
+    if (!isMobile) {
+        handleDayInteraction(day);
+    }
+  }, [handleDayInteraction, isMobile]);
   
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!pointerDownRef.current || !holdTimeoutRef.current) return;
@@ -371,6 +377,7 @@ export function CentseiCalendar({
             
             const isCurrentMonthDay = isSameMonth(day, currentDate);
             const isCurrentDay = isToday(day);
+            const isSelectedDay = selectedDate ? isSameDay(day, selectedDate) : false;
             const isDraggingOver = dragOverDate === dateKey && !!draggedEntry;
 
             return (
@@ -380,6 +387,7 @@ export function CentseiCalendar({
                   "h-32 sm:h-36 md:h-40 lg:h-48 xl:h-56 border rounded-lg p-2 flex flex-col transition-colors duration-200 group relative",
                   !isCurrentMonthDay && "bg-muted text-muted-foreground",
                   isCurrentDay && "border-primary",
+                  isSelectedDay && "bg-primary/10 border-primary/50",
                   isDraggingOver && "bg-primary/20 ring-2 ring-primary"
                 )}
                 onPointerDown={(e) => handlePointerDown(e, day)}
@@ -419,7 +427,7 @@ export function CentseiCalendar({
                         key={entry.id}
                         className={cn(
                             "px-2 py-1 rounded-md text-xs font-semibold flex items-center justify-between cursor-pointer", 
-                            entry.isPaid ? 'bg-secondary text-muted-foreground line-through' :
+                            entry.isPaid ? 'bg-secondary text-muted-foreground opacity-70' :
                             entry.type === 'bill' ? 'bg-destructive/10' : 'bg-emerald-500/10',
                             draggedEntry?.id === entry.id && 'opacity-50'
                         )}
@@ -454,9 +462,9 @@ export function CentseiCalendar({
                                     className="mr-1 flex-shrink-0"
                                 />
                             )}
-                            <span className="truncate">{entry.name}</span>
+                            <span className={cn("truncate", entry.isPaid && "line-through")}>{entry.name}</span>
                          </div>
-                        <span className="text-card-foreground">{formatCurrency(entry.amount)}</span>
+                        <span className={cn("text-card-foreground", entry.isPaid && "line-through")}>{formatCurrency(entry.amount)}</span>
                       </div>
                     ))}
                   </div>
