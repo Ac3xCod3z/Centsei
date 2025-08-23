@@ -83,7 +83,7 @@ type CentseiCalendarProps = {
 };
 
 
-export function SidebarContent({ weeklyTotals, selectedDate, budgetScore, dojoRank, goals, onScoreInfoClick, onScoreHistoryClick, onDojoInfoClick }: Pick<CentseiCalendarProps, 'weeklyTotals' | 'selectedDate' | 'budgetScore' | 'dojoRank' | 'goals' | 'onScoreInfoClick' | 'onScoreHistoryClick' | 'onDojoInfoClick'>) {
+export function SidebarContent({ weeklyTotals, selectedDate }: Pick<CentseiCalendarProps, 'weeklyTotals' | 'selectedDate'>) {
     
     return (
         <div className="p-4 md:p-6 space-y-6">
@@ -116,21 +116,6 @@ export function SidebarContent({ weeklyTotals, selectedDate, budgetScore, dojoRa
                     </div>
                 </CardContent>
             </Card>
-
-            {budgetScore && (
-                <BudgetScoreWidget 
-                    score={budgetScore}
-                    onInfoClick={onScoreInfoClick}
-                    onHistoryClick={onScoreHistoryClick}
-                />
-            )}
-            
-            {goals.length > 0 && (
-                <DojoJourneyWidget 
-                    rank={dojoRank}
-                    onInfoClick={onDojoInfoClick}
-                />
-            )}
         </div>
     );
 }
@@ -449,12 +434,6 @@ export function CentseiCalendar({
            <SidebarContent 
                 weeklyTotals={weeklyTotals} 
                 selectedDate={currentDate}
-                budgetScore={budgetScore}
-                dojoRank={dojoRank}
-                goals={goals}
-                onScoreInfoClick={onScoreInfoClick}
-                onScoreHistoryClick={onScoreHistoryClick}
-                onDojoInfoClick={onDojoInfoClick}
             />
         </aside>
       )}
