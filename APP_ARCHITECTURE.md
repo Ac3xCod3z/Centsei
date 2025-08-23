@@ -5,6 +5,21 @@ This document serves as a comprehensive reference for the architecture, features
 
 ---
 
+### Core Purpose & User Goal
+
+The primary goal of **Centsei** is to reframe personal finance from a chore into a practice of mindfulness and mastery. It's designed to be more than just a spreadsheet; it's a **"budgeting dojo"** where users can train their financial discipline, gain clarity, and achieve a sense of peace and control over their money.
+
+The core philosophy is built on several key principles:
+
+*   **Financial Awareness as a Practice:** By visualizing all income and expenses on a dynamic calendar, users develop an intuitive understanding of their cash flow. The act of tracking becomes a daily practice, much like a martial artist training in a dojo.
+*   **Guidance over Judgment:** The AI "Sensei" is a key feature that embodies this principle. Instead of just showing raw numbers, the Sensei provides calm, contextual mantras and suggestions. It guides users with wisdom, not shame, helping them stay motivated and focused on their long-term goals.
+*   **Mastery Through Consistency:** The app's features, like the "Dojo Journey" rank and "Budget Health Score," are designed to reward consistency and progress over time. Financial well-being isn't about one perfect month; it's about the discipline cultivated over the long term.
+*   **Simplicity and Focus:** The interface is intentionally clean and focused on what matters most: your cash flow, your goals, and your progress. It avoids overwhelming you with excessive features, allowing for a calmer, more focused financial practice.
+
+Ultimately, Centsei aims to empower users to become the "sensei" of their own finances—calm, confident, and in control.
+
+---
+
 ### Tech Stack & Core Libraries
 
 *   **Framework**: **Next.js** (using the App Router)
