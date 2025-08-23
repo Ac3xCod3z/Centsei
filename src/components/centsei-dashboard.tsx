@@ -1,5 +1,3 @@
-
-
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
@@ -56,7 +54,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Entry, RolloverPreference, WeeklyBalances, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
-import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO, startOfDay } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { scheduleNotificationsLocal, cancelAllNotificationsLocal } from "@/lib/notification-manager";
@@ -69,9 +67,6 @@ import { getDojoRank } from "@/lib/dojo-journey";
 import { DojoJourneyInfoDialog } from "./dojo-journey-info-dialog";
 import JSConfetti from 'js-confetti';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
-import { BudgetScoreWidget } from "./budget-score-widget";
-import { DojoJourneyWidget } from "./dojo-journey-widget";
-import { Separator } from "./ui/separator";
 import { getHolidaysForYear } from "@/lib/holidays";
 import { getForecastInsights } from "@/lib/forecast-insights";
 import SenseiSaysUI from "./sensei-says-ui";
@@ -82,30 +77,42 @@ import { parseDateInTimezone, stripUndefined } from "@/lib/utils";
 import { useSenseiSays } from "@/lib/sensei/useSenseiSays";
 import { useBlockMobileContextMenu } from "@/hooks/use-block-mobile-contextmenu";
 import { useBodyNoCalloutToggle } from "@/hooks/use-body-no-callout-toggle";
+import { SenseiEvaluationDialog } from "./sensei-evaluation-dialog";
+import { DojoJourneyDialog } from "./dojo-journey-dialog";
+import { cn } from "@/lib/utils";
+import { useDraggableFab } from "@/hooks/use-draggable-fab";
+
 
 const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezone: string): Entry[] => {
   if (!entry.date) return [];
 
   const instanceMap = new Map<string, Entry>();
   
-  const anchorDate = parseDateInTimezone(entry.date, timezone);
-  const floorDate = max([anchorDate, start]);
+  const anchorDate = startOfDay(parseDateInTimezone(entry.date, timezone));
+  const floorDate = max([anchorDate, startOfDay(start)]);
   
   const recurrenceEndDate = entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null;
 
-  const createInstance = (date: Date, overridePaidStatus?: boolean): Entry => {
+  const createInstance = (date: Date): Entry => {
     const dateStr = format(date, 'yyyy-MM-dd');
     const exception = entry.exceptions?.[dateStr];
 
-    let isPaid = overridePaidStatus ?? false;
+    const today = startOfDay(new Date());
+    const instanceDate = startOfDay(date);
+    const isPastOrToday = !isAfter(instanceDate, today);
 
-    if (exception && typeof exception.isPaid === 'boolean') {
+    let isPaid = false;
+    if (exception?.isPaid !== undefined) {
       isPaid = exception.isPaid;
     } else if (entry.recurrence === 'none') {
       isPaid = entry.isPaid ?? false;
     } else {
-      const isPast = isBefore(date, startOfMonth(new Date()));
-      isPaid = isPast ? (entry.type === 'income' || !!entry.isAutoPay) : false;
+      const isAuto = entry.isAutoPay;
+      if (isAuto) {
+        isPaid = isPastOrToday;
+      } else {
+        isPaid = false;
+      }
     }
 
     return {
@@ -122,8 +129,8 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
   };
   
   if (entry.recurrence === 'none') {
-    if (isWithinInterval(anchorDate, { start, end })) {
-      const instance = createInstance(anchorDate, entry.isPaid);
+    if (isWithinInterval(anchorDate, { start: floorDate, end })) {
+      const instance = createInstance(anchorDate);
       instanceMap.set(entry.date, instance);
     }
   } else {
@@ -151,7 +158,7 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
       if (recurrenceEndDate && isAfter(currentDate, recurrenceEndDate)) break;
       if (entry.recurrenceCount && occurrenceCount >= entry.recurrenceCount) break;
 
-      if (isWithinInterval(currentDate, { start, end })) {
+      if (isWithinInterval(currentDate, { start: floorDate, end })) {
         const dateStr = format(currentDate, 'yyyy-MM-dd');
         const instance = createInstance(currentDate);
         instanceMap.set(dateStr, instance);
@@ -190,7 +197,7 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
       }
 
       const exceptionDate = parseDateInTimezone(dateStr, timezone);
-      if (isWithinInterval(exceptionDate, { start, end })) {
+      if (isWithinInterval(exceptionDate, { start: floorDate, end })) {
         const existingInstance = instanceMap.get(dateStr);
         if (existingInstance) {
           if (exception.isPaid !== undefined) existingInstance.isPaid = exception.isPaid;
@@ -199,7 +206,7 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
           if (exception.amount) existingInstance.amount = exception.amount;
         } 
         else if (exception.movedFrom && exception.movedFrom !== 'deleted') {
-          instanceMap.set(dateStr, createInstance(exceptionDate, exception.isPaid));
+          instanceMap.set(dateStr, createInstance(exceptionDate));
         }
       }
     });
@@ -217,8 +224,8 @@ function getOriginalIdFromInstance(key: string) {
 export default function CentseiDashboard() {
   const { user, isGuest, loading: authLoading, signOut } = useAuth();
   const router = useRouter();
-  const pathname = usePathname();
 
+  const pathname = usePathname();
   useBlockMobileContextMenu(pathname === "/" || pathname?.startsWith("/view"));
   useBodyNoCalloutToggle();
 
@@ -243,6 +250,8 @@ export default function CentseiDashboard() {
   const [isScoreInfoOpen, setScoreInfoOpen] = useState(false);
   const [isScoreHistoryOpen, setScoreHistoryOpen] = useState(false);
   const [isDojoInfoOpen, setDojoInfoOpen] = useState(false);
+  const [isSenseiEvalOpen, setSenseiEvalOpen] = useState(false);
+  const [isDojoJourneyOpen, setDojoJourneyOpen] = useState(false);
   
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
@@ -261,6 +270,11 @@ export default function CentseiDashboard() {
   const jsConfettiRef = useRef<JSConfetti | null>(null);
 
   const senseiSays = useSenseiSays({ user });
+
+  const { position: mobileMenuPosition, fabRef: mobileMenuFabRef, handlers: mobileMenuHandlers, isDragging: isMobileMenuDragging } = useDraggableFab({
+    initialPosition: { x: 16, y: 88 }, // Bottom-left default
+    onClick: () => setMobileSheetOpen(true),
+  });
 
   // Use Firestore for data if user is logged in
   useEffect(() => {
@@ -316,11 +330,11 @@ export default function CentseiDashboard() {
   const allGeneratedEntries = useMemo(() => {
     if (entries.length === 0) return [];
     
-    const viewStart = startOfMonth(subMonths(currentMonth, 12));
-    const viewEnd = endOfMonth(addMonths(currentMonth, 24));
+    const viewStart = startOfMonth(subMonths(new Date(), 12));
+    const viewEnd = endOfMonth(addMonths(new Date(), 24));
 
     return entries.flatMap((e) => generateRecurringInstances(e, viewStart, viewEnd, timezone));
-  }, [entries, currentMonth, timezone]);
+  }, [entries, timezone]);
   
   useEffect(() => {
     if (allGeneratedEntries.length === 0) {
@@ -329,7 +343,7 @@ export default function CentseiDashboard() {
     }
 
     const newWeeklyBalances: WeeklyBalances = {};
-    const sortedEntries = allGeneratedEntries.sort((a,b) => a.date.localeCompare(b.date));
+    const sortedEntries = [...allGeneratedEntries].sort((a,b) => a.date.localeCompare(b.date));
         
     const firstDate = parseDateInTimezone(sortedEntries[0].date, timezone);
     const lastDate = parseDateInTimezone(sortedEntries[sortedEntries.length - 1].date, timezone);
@@ -345,7 +359,7 @@ export default function CentseiDashboard() {
 
         const entriesForWeek = allGeneratedEntries.filter(e => {
             const entryDate = parseDateInTimezone(e.date, timezone);
-            return entryDate >= weekStart && entryDate <= weekEnd;
+            return isWithinInterval(entryDate, { start: weekStart, end: weekEnd });
         });
         
         const income = entriesForWeek.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
@@ -400,13 +414,22 @@ export default function CentseiDashboard() {
     const { originalDate, ...data } = entryToSave;
     const masterId = data.id;
     const newDateStr = format(data.date, 'yyyy-MM-dd');
-
-    const cleanData = stripUndefined(data);
+    const oldDateStr = originalDate;
+    
+    // This is the data that will be saved to the database.
+    const saveData: any = {
+        ...data,
+        date: newDateStr, // Always save the date as a string
+    };
+    // Ensure date objects are converted to strings if they exist
+    if (saveData.recurrenceEndDate) {
+        saveData.recurrenceEndDate = format(saveData.recurrenceEndDate, 'yyyy-MM-dd');
+    }
 
     if (user && firestore) {
         if (!masterId) { // This is a new entry
             const collectionRef = collection(firestore, 'users', user.uid, 'calendar_entries');
-            await addDoc(collectionRef, { ...cleanData, date: newDateStr, created_at: serverTimestamp(), updated_at: serverTimestamp() });
+            await addDoc(collectionRef, stripUndefined({ ...saveData, date: newDateStr, created_at: serverTimestamp(), updated_at: serverTimestamp() }));
         } else { // This is an existing entry (master or instance)
             const masterDocRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
             const masterDoc = await getDoc(masterDocRef);
@@ -415,62 +438,61 @@ export default function CentseiDashboard() {
             const masterEntry = { id: masterDoc.id, ...masterDoc.data() } as Entry;
 
             if (masterEntry.recurrence === 'none') {
-                 await updateDoc(masterDocRef, { ...cleanData, date: newDateStr, updated_at: serverTimestamp() });
+                 await updateDoc(masterDocRef, stripUndefined({ ...saveData, updated_at: serverTimestamp() }));
             } else {
-                const exceptions = masterEntry.exceptions || {};
-                const oldDateStr = originalDate;
-
-                // remove old exception if it exists
-                if (oldDateStr && exceptions[oldDateStr]) {
-                   delete exceptions[oldDateStr];
-                }
+                const exceptions = { ...masterEntry.exceptions };
+                const instanceDate = oldDateStr || newDateStr;
                 
-                // Add new exception
-                exceptions[newDateStr] = {
-                    ...exceptions[newDateStr], // preserve other potential modifications
-                    name: data.name,
-                    amount: data.amount,
-                    isPaid: data.isPaid,
-                    category: data.category
+                const exceptionData = {
+                  name: data.name === masterEntry.name ? undefined : data.name,
+                  amount: data.amount === masterEntry.amount ? undefined : data.amount,
+                  isPaid: data.isPaid,
+                  isAutoPay: data.isAutoPay === masterEntry.isAutoPay ? undefined : data.isAutoPay,
+                  category: data.category === masterEntry.category ? undefined : data.category,
                 };
-
-                // Add pointer if dates differ
-                if (oldDateStr && oldDateStr !== newDateStr) {
-                    exceptions[newDateStr].movedFrom = oldDateStr;
-                    exceptions[oldDateStr] = { ...exceptions[oldDateStr], movedTo: newDateStr };
+                
+                // Income entries do not have a category
+                if(data.type === 'income') {
+                    delete (exceptionData as any).category;
                 }
 
-                await updateDoc(masterDocRef, { exceptions, updated_at: serverTimestamp() });
+                exceptions[instanceDate] = { ...exceptions[instanceDate], ...stripUndefined(exceptionData) };
+                
+                if (oldDateStr && oldDateStr !== newDateStr) {
+                    exceptions[oldDateStr] = { ...exceptions[oldDateStr], movedTo: newDateStr };
+                    exceptions[newDateStr] = { ...exceptions[newDateStr], ...stripUndefined(exceptionData), movedFrom: oldDateStr };
+                }
+
+                await updateDoc(masterDocRef, { exceptions: stripUndefined(exceptions), updated_at: serverTimestamp() });
             }
         }
     } else {
          setEntries(prevEntries => {
             if (!masterId) {
-                return [...prevEntries, { ...cleanData, date: newDateStr, id: crypto.randomUUID() }];
+                return [...prevEntries, { ...saveData, id: crypto.randomUUID() }];
             }
 
             const masterEntry = prevEntries.find(e => e.id === masterId);
             if (!masterEntry) return prevEntries;
 
             if (masterEntry.recurrence === 'none') {
-                return prevEntries.map(e => e.id === masterId ? { ...e, ...cleanData, date: newDateStr } : e);
+                return prevEntries.map(e => e.id === masterId ? { ...e, ...saveData } : e);
             }
             
             const exceptions = { ...masterEntry.exceptions };
-            if (originalDate && exceptions[originalDate]) {
-                delete exceptions[originalDate];
+            const instanceDate = oldDateStr || newDateStr;
+            const exceptionData: Partial<Entry> = { name: data.name, amount: data.amount, isPaid: data.isPaid };
+            if (data.type === 'bill') {
+                exceptionData.category = data.category;
+            }
+            exceptions[instanceDate] = { ...exceptions[instanceDate], ...stripUndefined(exceptionData) };
+            
+            if(oldDateStr && oldDateStr !== newDateStr) {
+                exceptions[oldDateStr] = { ...exceptions[oldDateStr], movedTo: newDateStr };
+                exceptions[newDateStr] = { ...exceptions[newDateStr], ...stripUndefined(exceptionData), movedFrom: oldDateStr };
             }
             
-            exceptions[newDateStr] = {
-                ...exceptions[newDateStr],
-                name: data.name, amount: data.amount, isPaid: data.isPaid, category: data.category
-            };
-            if(originalDate && originalDate !== newDateStr) {
-                exceptions[newDateStr].movedFrom = originalDate;
-                exceptions[originalDate] = { ...exceptions[originalDate], movedTo: newDateStr };
-            }
-            
-            return prevEntries.map(e => e.id === masterId ? { ...e, exceptions } : e);
+            return prevEntries.map(e => e.id === masterId ? { ...e, exceptions: stripUndefined(exceptions) } : e);
         });
     }
 
@@ -561,7 +583,7 @@ export default function CentseiDashboard() {
               masterUpdates[instance.masterId] = { delete: true };
             } else {
               if (!masterUpdates[instance.masterId]) {
-                masterUpdates[instance.masterId] = { exceptions: { ...masterEntry.exceptions } };
+                masterUpdates[instance.masterId] = { exceptions: { ...masterEntry?.exceptions } };
               }
               masterUpdates[instance.masterId].exceptions[instance.date] = {
                 ...masterUpdates[instance.masterId].exceptions[instance.date],
@@ -599,18 +621,23 @@ export default function CentseiDashboard() {
       const exceptions = { ...masterEntry.exceptions };
       const oldDate = entryToMove.date;
       
-      exceptions[oldDate] = { ...exceptions[oldDate], movedTo: newDate };
-      exceptions[newDate] = { ...exceptions[newDate], movedFrom: oldDate };
+      const oldException = exceptions[oldDate] || {};
+      const newExceptionData = { ...entryToMove };
+      delete (newExceptionData as any).id;
+      delete (newExceptionData as any).originalDate;
+      
+      exceptions[oldDate] = { ...oldException, movedTo: newDate };
+      exceptions[newDate] = { ...stripUndefined(newExceptionData), movedFrom: oldDate };
 
-      return { ...masterEntry, exceptions };
+      return { ...masterEntry, exceptions: stripUndefined(exceptions) };
     };
 
     if (user && firestore) {
       const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
       const masterDoc = await getDoc(docRef);
       if (masterDoc.exists()) {
-        const updatedEntry = updateFn(masterDoc.data() as Entry);
-        await updateDoc(docRef, { exceptions: updatedEntry.exceptions, updated_at: serverTimestamp() });
+        const updatedEntry = updateFn({id: masterDoc.id, ...masterDoc.data()} as Entry);
+        await updateDoc(docRef, stripUndefined({ exceptions: updatedEntry.exceptions, updated_at: serverTimestamp() }));
       }
     } else {
       setEntries(prev => prev.map(e => (e.id === masterId ? updateFn(e) : e)));
@@ -679,7 +706,7 @@ export default function CentseiDashboard() {
 
         for (const [id, updates] of masterUpdates.entries()) {
             const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', id);
-            batch.update(docRef, updates);
+            batch.update(docRef, { exceptions: stripUndefined(updates.exceptions) });
         }
         await batch.commit();
     } else {
@@ -752,11 +779,10 @@ export default function CentseiDashboard() {
     
     const weekBalanceInfo = weeklyBalances[weekKey];
     const startOfWeekBalance = weekBalanceInfo ? weekBalanceInfo.start : 0;
-    const endOfWeekBalance = weekBalanceInfo ? weekBalanceInfo.end : 0;
 
     const weekEntries = allGeneratedEntries.filter(e => {
         const entryDate = parseDateInTimezone(e.date, timezone);
-        return entryDate >= weekStart && entryDate <= endOfWeek(weekStart);
+        return isWithinInterval(entryDate, {start: weekStart, end: endOfWeek(weekStart)});
     });
 
     const weeklyIncome = weekEntries.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
@@ -765,7 +791,7 @@ export default function CentseiDashboard() {
     return {
         income: weeklyIncome,
         bills: weeklyBills,
-        net: endOfWeekBalance,
+        net: startOfWeekBalance + weeklyIncome - weeklyBills,
         startOfWeekBalance: startOfWeekBalance,
         status: weeklyIncome - weeklyBills,
     };
@@ -868,27 +894,45 @@ export default function CentseiDashboard() {
             <Image src="/CentseiLogo.png" alt="Centsei Logo" width={80} height={26} />
           </div>
           <div className="flex items-center gap-2">
+            {isMobile && (
+              <div
+                ref={mobileMenuFabRef}
+                className="fixed z-50"
+                style={{
+                  right: `${mobileMenuPosition.x}px`,
+                  bottom: `${mobileMenuPosition.y}px`,
+                }}
+                {...mobileMenuHandlers}
+              >
+                 <Sheet open={isMobileSheetOpen} onOpenChange={setMobileSheetOpen}>
+                    <SheetTrigger asChild>
+                      <Button
+                        aria-label="Open Menu"
+                        className={cn(
+                          "h-16 w-16 rounded-full shadow-xl flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 touch-none",
+                          isMobileMenuDragging && "cursor-grabbing"
+                        )}
+                      >
+                         <Menu />
+                      </Button>
+                    </SheetTrigger>
+                    <SheetContent side="left" className="p-0 flex flex-col w-3/4">
+                      <SheetHeader className="p-4 border-b">
+                        <SheetTitle>Week of {format(startOfWeek(selectedDate), "MMM d")}</SheetTitle>
+                      </SheetHeader>
+                      <ScrollArea className="flex-1">
+                        <SidebarContent
+                          weeklyTotals={weeklyTotals}
+                          selectedDate={selectedDate}
+                        />
+                      </ScrollArea>
+                    </SheetContent>
+                  </Sheet>
+              </div>
+            )}
+
             {!isMobile && (
               <>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline">
-                      <Menu className="mr-2 h-4 w-4" /> Menu
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setMonthlySummaryOpen(true)}><PieChart className="mr-2 h-4 w-4" />Monthly Summary</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setMonthlyBreakdownOpen(true)}><BarChartBig className="mr-2 h-4 w-4" />Category Breakdown</DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setScoreInfoOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setDojoInfoOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => senseiSays.showFavorites()}><Heart className="mr-2 h-4 w-4" />Favorite Mantras</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-
                 <Button variant="ghost" size="icon" onClick={() => setCalculatorOpen(true)}>
                   <Calculator className="h-5 w-5" />
                   <span className="sr-only">Calculator</span>
@@ -916,8 +960,8 @@ export default function CentseiDashboard() {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setScoreInfoOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setDojoInfoOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSenseiEvalOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDojoJourneyOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
                 {isMobile && (
                   <>
                     <DropdownMenuSeparator />
@@ -957,28 +1001,13 @@ export default function CentseiDashboard() {
           }}
           onMoveRequest={(entry, newDate) => setMoveRequest({entry, newDate})}
           birthdays={birthdays}
+          budgetScore={budgetScore}
+          dojoRank={dojoRank}
+          goals={goals}
+          onScoreInfoClick={() => setScoreInfoOpen(true)}
+          onScoreHistoryClick={() => setScoreHistoryOpen(true)}
+          onDojoInfoClick={() => setDojoInfoOpen(true)}
         />
-        
-        {isMobile && (
-          <Sheet open={isMobileSheetOpen} onOpenChange={setMobileSheetOpen}>
-            <SheetTrigger asChild>
-               <Button className="fixed bottom-4 left-4 rounded-full h-14 w-14 shadow-lg lg:hidden" variant="default" size="icon">
-                  <Menu />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="bottom" className="p-0 flex flex-col h-3/4">
-               <SheetHeader className="p-4 border-b">
-                 <SheetTitle>Week of {format(startOfWeek(selectedDate), "MMM d")}</SheetTitle>
-              </SheetHeader>
-              <ScrollArea className="flex-1">
-                  <SidebarContent
-                    weeklyTotals={weeklyTotals}
-                    selectedDate={selectedDate}
-                  />
-              </ScrollArea>
-            </SheetContent>
-          </Sheet>
-        )}
       </div>
 
       <EntryDialog
@@ -1066,6 +1095,19 @@ export default function CentseiDashboard() {
         <BudgetScoreInfoDialog isOpen={isScoreInfoOpen} onClose={() => setScoreInfoOpen(false)} />
         <BudgetScoreHistoryDialog isOpen={isScoreHistoryOpen} onClose={() => setScoreHistoryOpen(false)} history={budgetScoreHistory} />
         <DojoJourneyInfoDialog isOpen={isDojoInfoOpen} onClose={() => setDojoInfoOpen(false)} />
+        <SenseiEvaluationDialog 
+            isOpen={isSenseiEvalOpen} 
+            onClose={() => setSenseiEvalOpen(false)}
+            budgetScore={budgetScore}
+            onInfoClick={() => setScoreInfoOpen(true)}
+            onHistoryClick={() => setScoreHistoryOpen(true)}
+        />
+        <DojoJourneyDialog 
+            isOpen={isDojoJourneyOpen}
+            onClose={() => setDojoJourneyOpen(false)}
+            rank={dojoRank}
+            onInfoClick={() => setDojoInfoOpen(true)}
+        />
 
        <AlertDialog open={!!entryToDelete} onOpenChange={() => setEntryToDelete(null)}>
         <AlertDialogContent>
@@ -1108,5 +1150,3 @@ export default function CentseiDashboard() {
     </>
   );
 }
-
-    

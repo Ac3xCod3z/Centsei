@@ -1,29 +1,20 @@
 // src/app/login/page.tsx
 "use client";
 
-import React, { useEffect } from 'react';
-import { useAuth } from '@/components/auth-provider';
-import { useRouter } from 'next/navigation';
+import React from 'react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { CentseiLoader } from '@/components/centsei-loader';
+import { useLoginPage } from './use-login-page';
 
 export default function LoginPage() {
-  const { user, signInWithGoogle, loading, continueAsGuest, isGuest } = useAuth();
-  const router = useRouter();
+  const { 
+    isLoading, 
+    signInWithGoogle, 
+    continueAsGuest 
+  } = useLoginPage();
 
-  useEffect(() => {
-    if (!loading && (user || isGuest)) {
-      router.replace('/');
-    }
-  }, [user, isGuest, loading, router]);
-  
-  const handleUseWithoutAccount = () => {
-    continueAsGuest();
-    router.replace('/');
-  }
-
-  if (loading || user || isGuest) {
+  if (isLoading) {
     return <CentseiLoader isAuthLoading />;
   }
   
@@ -46,7 +37,7 @@ export default function LoginPage() {
 
           <div className="text-xs text-muted-foreground">or</div>
 
-          <Button variant="outline" className="w-full" onClick={handleUseWithoutAccount}>
+          <Button variant="outline" className="w-full" onClick={continueAsGuest}>
             Use without account (local only)
           </Button>
         </div>
