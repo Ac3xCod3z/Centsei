@@ -1,6 +1,5 @@
 // src/lib/types.ts
 import { z } from 'zod';
-import { FieldValue } from 'firebase/firestore';
 
 export type EntryType = 'bill' | 'income';
 
@@ -55,9 +54,21 @@ export const RecurrenceOptions = [
 export type RecurrenceInterval = typeof RecurrenceOptions[number];
 export type CategoryDisplayPreference = 'text' | 'emoji';
 
-export const EntrySchema = z.object({
+export type ISODate = string; // "YYYY-MM-DD" format
+
+export type EntryException = {
+  movedTo?: ISODate;
+  movedFrom?: ISODate;
+  isPaid?: boolean;
+  order?: number;
+  name?: string;
+  amount?: number;
+  category?: BillCategory;
+};
+
+export const MasterEntrySchema = z.object({
   id: z.string(),
-  date: z.string(), // YYYY-MM-DD
+  date: z.string(), // YYYY-MM-DD anchor date
   name: z.string(),
   amount: z.number(),
   type: z.enum(['bill', 'income']),
@@ -68,22 +79,18 @@ export const EntrySchema = z.object({
   order: z.number().optional(),
   isPaid: z.boolean().optional(),
   isAutoPay: z.boolean().optional(),
-  exceptions: z.record(z.object({ 
-    isPaid: z.boolean().optional(),
-    movedTo: z.string().optional(), // YYYY-MM-DD
-    order: z.number().optional(),
-    name: z.string().optional(),
-    amount: z.number().optional(),
-    category: z.enum(BillCategories).optional(),
-    movedFrom: z.string().optional(),
-  })).optional(),
+  exceptions: z.record(z.custom<EntryException>()).optional(),
   created_at: z.any().optional(),
   updated_at: z.any().optional(),
   source: z.string().optional(),
   content_hash: z.string().optional(),
 });
 
-export type Entry = z.infer<typeof EntrySchema>;
+export type MasterEntry = z.infer<typeof MasterEntrySchema>;
+
+// This type represents an instance on the calendar, it may have overrides from an exception
+export type Entry = MasterEntry;
+
 
 export const GoalSchema = z.object({
   id: z.string(),

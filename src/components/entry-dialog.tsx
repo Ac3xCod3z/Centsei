@@ -88,7 +88,6 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
     if (isOpen) {
       const isNew = !entry;
       const isCopy = entry && !entry.id;
-      const isInstance = entry?.id && entry.id.includes(entry.date);
       
       let initialValues = {
         type: "bill",
@@ -104,14 +103,6 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
       };
 
       if (entry) {
-        let isPaidStatus = entry.isPaid ?? false;
-        if (isInstance) {
-           const exception = entry.exceptions?.[entry.date];
-           if (exception?.isPaid !== undefined) {
-             isPaidStatus = exception.isPaid;
-           }
-        }
-
         initialValues = {
             ...initialValues,
             type: entry.type || "bill",
@@ -122,7 +113,7 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
             recurrenceEndDate: entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : undefined,
             recurrenceCount: entry.recurrenceCount || undefined,
             category: entry.category as BillCategory | undefined,
-            isPaid: isCopy ? false : isPaidStatus,
+            isPaid: isCopy ? false : entry.isPaid ?? false,
             isAutoPay: entry.isAutoPay || false,
         };
       }

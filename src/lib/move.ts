@@ -22,33 +22,37 @@ export function moveOneTime(
  * Moves a single occurrence of a recurring entry by creating exceptions.
  */
 export function moveSingleOccurrence(
-  master: MasterEntry,
-  source: ISODate,
-  target: ISODate
-): MasterEntry {
-  if (source === target) return master;
+    master: MasterEntry,
+    sourceDate: ISODate,
+    targetDate: ISODate
+  ): MasterEntry {
+    if (sourceDate === targetDate) return master;
   
-  const newMaster = { ...master, exceptions: { ...(master.exceptions ?? {}) } };
+    const newMaster = { ...master, exceptions: { ...(master.exceptions ?? {}) } };
   
-  // Find the original base date for this instance. If we are dragging an already moved instance,
-  // its `movedFrom` tells us the original date in the series.
-  const originalSourceDate = newMaster.exceptions[source]?.movedFrom ?? source;
-
-  // Clean up any pre-existing move for the original source date.
-  // This handles re-dragging a moved instance.
-  const oldTarget = newMaster.exceptions[originalSourceDate]?.movedTo;
-  if (oldTarget && oldTarget !== target) {
-      delete newMaster.exceptions[oldTarget];
-  }
-
-  // Point the original date to the new target.
-  newMaster.exceptions[originalSourceDate] = { movedTo: target };
-
-  // Create the new exception at the target date.
-  // For now, we don't copy overrides, but this could be extended.
-  newMaster.exceptions[target] = { movedFrom: originalSourceDate };
-
-  return stripUndefined(newMaster);
+    // Determine the true original date of the series for the instance being moved.
+    // If we're dragging an instance that was already an exception, its 'movedFrom' points to the original date.
+    const originalSourceDate = newMaster.exceptions[sourceDate]?.movedFrom ?? sourceDate;
+    
+    // Clean up any pre-existing move for this original source date.
+    // This handles re-dragging a previously moved instance to a new location.
+    const oldTarget = newMaster.exceptions[originalSourceDate]?.movedTo;
+    if (oldTarget && oldTarget !== targetDate) {
+        delete newMaster.exceptions[oldTarget];
+    }
+  
+    // Create or update the exception for the original date to point to the new target date.
+    newMaster.exceptions[originalSourceDate] = { movedTo: targetDate };
+  
+    // Create the exception for the new target date, marking where it came from.
+    // This preserves any overrides that might have existed on the original instance.
+    const sourceOverrides = newMaster.exceptions[sourceDate];
+    newMaster.exceptions[targetDate] = { 
+        movedFrom: originalSourceDate,
+        ...(sourceOverrides && !sourceOverrides.movedFrom && sourceOverrides), // Carry over any specific overrides (like amount/name changes)
+    };
+  
+    return stripUndefined(newMaster);
 }
 
 
@@ -86,6 +90,7 @@ export function validateMaster(master: MasterEntry): void {
   for (const [date, ex] of Object.entries(master.exceptions ?? {})) {
     if ("movedTo" in ex) {
       const T = ex.movedTo;
+      if (!T) continue;
       const paired = master.exceptions?.[T];
       if (!paired || !("movedFrom" in paired) || paired.movedFrom !== date) {
         console.warn("Centsei Validator: Missing or mismatched pair for movedTo", { date, ex });
