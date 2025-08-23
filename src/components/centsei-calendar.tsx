@@ -219,9 +219,7 @@ export function CentseiCalendar({
   const handleEditClick = (entry: Entry) => {
     if(isReadOnly) return;
     // We pass the full instance data, which includes any overrides.
-    const masterId = getOriginalIdFromInstance(entry.id);
-    const masterEntry = entries.find(e => e.id === masterId);
-    setEditingEntry({ ...masterEntry, ...entry });
+    setEditingEntry(entry);
     setEntryDialogOpen(true);
   }
 
