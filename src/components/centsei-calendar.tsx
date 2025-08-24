@@ -257,9 +257,10 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
 
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isMobile = useMedia("(max-width: 768px)", false);
-
-  const handleDayInteraction = (day: Date) => {
+  
+  const handleDayInteraction = (day: Date, isLongPress: boolean = false) => {
     setSelectedDate(day);
+    setLocalSelectedDate(day);
 
     if (isReadOnly) return;
     
@@ -273,10 +274,9 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
 
     const hasContent = dayEntries.length > 0 || dayHolidays.length > 0 || dayBirthdays.length > 0;
     
-    if (hasContent) {
+    // On Desktop: click opens day dialog. On Mobile: long-press opens day dialog.
+    if ((!isMobile && hasContent) || (isMobile && isLongPress && hasContent)) {
       openDayEntriesDialog(dayHolidays, dayBirthdays);
-    } else {
-        openNewEntryDialog(day);
     }
   };
   
@@ -284,10 +284,7 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
     if (!isMobile || isReadOnly) return;
 
     longPressTimerRef.current = setTimeout(() => {
-        const dayEntries = generatedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), day));
-         if(dayEntries.length > 0) {
-            handleDayInteraction(day);
-         }
+      handleDayInteraction(day, true); // Signal that it's a long press
     }, 500); // 500ms for long press
   };
 
