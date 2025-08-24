@@ -264,7 +264,7 @@ export default function CentseiDashboard() {
   const [selectedInstances, setSelectedInstances] = useState<SelectedInstance[]>([]);
   const [entryToDelete, setEntryToDelete] = useState<{instanceId: string, isSeries: boolean} | null>(null);
   const [moveRequest, setMoveRequest] = useState<{entry: Entry, newDate: string} | null>(null);
-  const [updateRequest, setUpdateRequest] = useState<{entry: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }, isSeries: boolean} | null>(null);
+  const [updateRequest, setUpdateRequest] = useState<{entry: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }, isSeries: boolean} | null>(updateRequest);
 
 
   const { toast } = useToast();
@@ -489,7 +489,8 @@ export default function CentseiDashboard() {
     }
   }
 
-  const handleDeleteEntry = async (instanceId: string, isSeriesDelete: boolean) => {
+  const handleDeleteEntry = async (instanceId: string | null, isSeriesDelete: boolean) => {
+    if (!instanceId) return;
     const masterId = getOriginalIdFromInstance(instanceId);
     
     if (user && firestore) {
@@ -531,7 +532,7 @@ export default function CentseiDashboard() {
     }
     
     setEntryToDelete(null);
-    setEntryDialogOpen(false);
+    setDayEntriesDialogOpen(false);
     toast({ title: 'Entry Deleted' });
   };
   
@@ -1015,6 +1016,8 @@ export default function CentseiDashboard() {
         onGoalsChange={setGoals}
         birthdays={birthdays}
         onBirthdaysChange={setBirthdays}
+        initialBalance={initialBalance}
+        onInitialBalanceChange={setInitialBalance}
       />
        <DayEntriesDialog
         isOpen={isDayEntriesDialogOpen}
@@ -1029,6 +1032,7 @@ export default function CentseiDashboard() {
         })}
         onAddEntry={handleAddFromDayDialog}
         onEditEntry={handleEditFromDayDialog}
+        onDeleteEntry={handleDeleteConfirmation}
         onReorder={handleReorder}
       />
       <MonthlyBreakdownDialog
@@ -1097,7 +1101,7 @@ export default function CentseiDashboard() {
           <AlertDialogHeader>
             <AlertDialogTitle>Update Recurring Entry</AlertDialogTitle>
             <AlertDialogDescription>
-              {moveRequest ? "How would you like to move this entry?" : entryToDelete ? "How would you like to delete this entry?" : "How would you like to update this entry?"}
+              {moveRequest ? "How would you like to move this entry?" : entryToDelete ? "Delete this recurring entry?" : "How would you like to update this entry?"}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-4 py-4">
@@ -1106,7 +1110,7 @@ export default function CentseiDashboard() {
                   if(entryToDelete) handleDeleteEntry(entryToDelete.instanceId, false);
                   if(moveRequest) handleMoveEntry(moveRequest.entry, moveRequest.newDate, false);
               }}>
-                 Just This One
+                 Just this one
                  <p className="font-normal text-xs text-muted-foreground/80 ml-2">Applies changes to this occurrence only.</p>
               </Button>
               <Button className="w-full" variant="secondary" onClick={() => {

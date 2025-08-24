@@ -170,7 +170,7 @@ function DayCell(props: DayCellProps) {
         "relative flex h-full min-h-[120px] flex-col rounded-lg border p-2 transition-colors",
         !isCurrentMonth && "text-muted-foreground bg-muted/30",
         isToday && "border-primary",
-        isSelected && "bg-destructive/20 border-destructive",
+        isSelected && "bg-day-selected/20 border-day-selected",
         period && !isSelected && "bg-secondary/20"
       )}
       onClick={onSelect}
@@ -280,8 +280,8 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
       openDayEntriesDialog(dayHolidays, dayBirthdays);
     }
   };
-
-  const handlePointerDown = (day: Date) => {
+  
+   const handlePointerDown = (day: Date) => {
     if (!isMobile || isReadOnly) return;
 
     longPressTimerRef.current = setTimeout(() => {
@@ -344,27 +344,13 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
         <header className="mb-4 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-2">
                 <Button onClick={goToPreviousMonth} variant="outline" size="icon" className="h-9 w-9"><ChevronLeft className="h-5 w-5" /></Button>
+                <h2 className="text-xl md:text-2xl font-bold text-center">
+                    {format(currentMonthDate, "MMMM yyyy")}
+                </h2>
                 <Button onClick={goToNextMonth} variant="outline" size="icon" className="h-9 w-9"><ChevronRight className="h-5 w-5" /></Button>
                 <Button onClick={goToToday} variant="outline" className="hidden sm:inline-flex">Today</Button>
             </div>
-            <div className="flex items-baseline gap-2 text-2xl font-bold">
-                 <Select value={String(getMonth(currentMonthDate))} onValueChange={handleMonthChange}>
-                    <SelectTrigger className="border-none !bg-transparent p-0 text-2xl font-bold focus:ring-0 focus:ring-offset-0 h-auto">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {MONTHS.map((month, index) => <SelectItem key={month} value={String(index)}>{month}</SelectItem>)}
-                    </SelectContent>
-                </Select>
-                <Select value={String(currentYear)} onValueChange={handleYearChange}>
-                    <SelectTrigger className="border-none !bg-transparent p-0 text-2xl font-bold focus:ring-0 focus:ring-offset-0 h-auto">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {years.map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
-                    </SelectContent>
-                </Select>
-            </div>
+            
             <div className="flex items-center gap-2">
                  {!isReadOnly && (
                     <Button onClick={toggleSelectionMode} variant={isSelectionMode ? "secondary" : "outline"}>

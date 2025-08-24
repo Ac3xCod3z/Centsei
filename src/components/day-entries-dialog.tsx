@@ -3,7 +3,7 @@
 "use client";
 
 import { format } from "date-fns";
-import { Plus, Check, PartyPopper, Cake, GripVertical } from "lucide-react";
+import { Plus, Check, PartyPopper, Cake, GripVertical, Trash2 } from "lucide-react";
 import Image from 'next/image';
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +18,17 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Entry, Holiday, Birthday } from "@/lib/types";
 import { cn, formatCurrency } from "@/lib/utils";
 import React, { useState, useRef, useEffect } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 type DayEntriesDialogProps = {
   isOpen: boolean;
@@ -28,6 +39,7 @@ type DayEntriesDialogProps = {
   birthdays: Birthday[];
   onAddEntry: () => void;
   onEditEntry: (entry: Entry) => void;
+  onDeleteEntry: (id: string) => void;
   onReorder: (orderedEntries: Entry[]) => void;
 };
 
@@ -40,6 +52,7 @@ export function DayEntriesDialog({
   birthdays,
   onAddEntry,
   onEditEntry,
+  onDeleteEntry,
   onReorder
 }: DayEntriesDialogProps) {
   
@@ -191,10 +204,8 @@ export function DayEntriesDialog({
                                       <GripVertical className="h-5 w-5 text-muted-foreground" />
                                    </div>
                                   <div 
-                                      className={cn("p-2 rounded-full flex items-center justify-center", 
-                                      entry.isPaid ? 'bg-muted-foreground/20' : entry.type === 'bill' ? 'bg-destructive/20' : 'bg-emerald-500/20'
-                                  )}
-                                    onClick={() => onEditEntry(entry)}
+                                      className="p-2 rounded-full flex items-center justify-center cursor-pointer" 
+                                      onClick={() => onEditEntry(entry)}
                                   >
                                       {entry.isPaid ? (
                                         <Check className="h-5 w-5 text-muted-foreground" />
@@ -216,11 +227,30 @@ export function DayEntriesDialog({
                                   </div>
                               </div>
                               
-                              {entry.recurrence && entry.recurrence !== 'none' && (
-                                  <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-full capitalize">
-                                      {entry.recurrence === '12months' ? 'Annually' : entry.recurrence.replace('months', ' mos')}
-                                  </span>
-                              )}
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 group-hover:opacity-100">
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Delete Entry?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Are you sure you want to delete the entry "{entry.name}"?
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() => onDeleteEntry(entry.id)}
+                                      className="bg-destructive hover:bg-destructive/90"
+                                    >
+                                      Delete
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
                           </div>
                       ))}
                   </div>

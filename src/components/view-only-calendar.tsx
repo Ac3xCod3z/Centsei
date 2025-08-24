@@ -12,7 +12,7 @@ import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Menu, AlertCircle } from "lucide-react";
-import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDay, add, setDate, getDate, startOfWeek, endOfWeek, eachWeekOfInterval, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, isWithinInterval, isAfter, max, startOfDay } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDay, add, setDate, getDate, startOfWeek, endOfWeek, eachWeekOfInterval, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, isWithinInterval, isAfter, max, startOfDay, getMonth, getYear } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -26,6 +26,7 @@ type SharedData = {
   timezone: string;
   goals: [],
   birthdays: Birthday[],
+  initialBalance: number,
 };
 
 const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezone: string): Entry[] => {
@@ -185,6 +186,7 @@ export default function ViewOnlyCalendar() {
                 timezone: parsedData.timezone,
                 goals: parsedData.goals || [],
                 birthdays: parsedData.birthdays || [],
+                initialBalance: parsedData.initialBalance || 0,
             });
         } else {
             throw new Error("Invalid data structure");
@@ -214,7 +216,13 @@ export default function ViewOnlyCalendar() {
     () => buildPayPeriods(allGeneratedEntries, 1),
     [allGeneratedEntries]
   );
+  
+  const activePeriodIndex = useMemo(
+    () => payPeriods.findIndex(p => selectedDate >= p.start && selectedDate < p.end),
+    [payPeriods, selectedDate]
+  );
 
+  const initialBalance = data?.initialBalance ?? 0;
 
   if (error) {
     return (
@@ -252,8 +260,9 @@ export default function ViewOnlyCalendar() {
               </SheetHeader>
               <ScrollArea className="flex-1">
                   <SidebarContent
-                    payPeriods={payPeriods}
-                    selectedDate={selectedDate}
+                    periods={payPeriods}
+                    activeIndex={activePeriodIndex}
+                    initialBalance={initialBalance}
                   />
               </ScrollArea>
             </SheetContent>
@@ -286,6 +295,8 @@ export default function ViewOnlyCalendar() {
         onScoreInfoClick={() => {}}
         onScoreHistoryClick={() => {}}
         onDojoInfoClick={() => {}}
+        activePeriodIndex={activePeriodIndex}
+        initialBalance={initialBalance}
       />
     </div>
   );
