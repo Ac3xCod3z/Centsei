@@ -334,8 +334,8 @@ export default function CentseiDashboard() {
   const allGeneratedEntries = useMemo(() => {
     if (entries.length === 0) return [];
     
-    const viewStart = startOfMonth(subMonths(new Date(), 12));
-    const viewEnd = endOfMonth(addMonths(new Date(), 24));
+    const viewStart = startOfMonth(subMonths(new Date(), 3));
+    const viewEnd = endOfMonth(addMonths(new Date(), 3));
 
     return entries.flatMap((e) => generateRecurringInstances(e, viewStart, viewEnd, timezone));
   }, [entries, timezone]);
@@ -345,10 +345,14 @@ export default function CentseiDashboard() {
     [allGeneratedEntries]
   );
   
-  const activePeriodIndex = useMemo(
-    () => payPeriods.findIndex(p => selectedDate >= p.start && selectedDate < p.end),
-    [payPeriods, selectedDate]
-  );
+  const activePeriodIndex = useMemo(() => {
+    const idx = payPeriods.findIndex(p => selectedDate >= p.start && selectedDate < p.end);
+    if (idx !== -1) return idx;
+    // Fallback: find the period that would have been before this date.
+    const prevIdx = payPeriods.findIndex(p => selectedDate >= p.start) -1;
+    return Math.max(0, prevIdx);
+  }, [payPeriods, selectedDate]);
+
 
   const handleNotificationsToggle = (enabled: boolean) => {
     setNotificationsEnabled(enabled);

@@ -21,14 +21,30 @@ export type PayPeriod = {
 export const normalize = (d: Date | string) =>
   startOfDay(typeof d === "string" ? new Date(d) : d);
 
+const getKind = (e: any): "income" | "expense" => {
+    const t = String(e.type ?? e.kind ?? "").toLowerCase();
+    if (t === "income" || t === "paycheck") return "income";
+    if (t === "expense" || t === "bill") return "expense";
+    return Number(e.amount) < 0 ? "expense" : "income";
+};
+
+const getDate = (e: any): Date => {
+    return normalize(e.date ?? e.dueDate ?? e.when);
+};
+
+const getAmt = (e: any): number => {
+    return Math.abs(Number(e.amount));
+};
+
+
 /**
  * Build pay periods by first clustering consecutive income days into a single "pay-run".
  * clusterGapDays = 1 groups back-to-back incomes (e.g., 4th & 5th).
  */
 export function buildPayPeriods(all: Entry[], clusterGapDays = 1): PayPeriod[] {
   const allIncomes = all
-    .filter(e => e.type === "income")
-    .map(e => ({ ...e, date: normalize(parseDateInTimezone(e.date, 'UTC')).toISOString() }))
+    .filter(e => getKind(e) === "income")
+    .map(e => ({ ...e, date: getDate(e).toISOString() }))
     .sort((a, b) => compareAsc(new Date(a.date), new Date(b.date)));
 
   if (!allIncomes.length) return [];
@@ -60,16 +76,16 @@ export function buildPayPeriods(all: Entry[], clusterGapDays = 1): PayPeriod[] {
   });
 
   const expenses = all
-    .filter(e => e.type === "bill")
-    .map(e => ({ ...e, date: normalize(parseDateInTimezone(e.date, 'UTC')).toISOString() }));
+    .filter(e => getKind(e) === "expense")
+    .map(e => ({ ...e, date: getDate(e).toISOString() }));
 
   const incomeIdsInRuns = new Set(allIncomes.map(i => i.id));
   const bonusIncomes = all
-    .filter(e => e.type === "income" && !incomeIdsInRuns.has(e.id))
-    .map(e => ({ ...e, date: normalize(parseDateInTimezone(e.date, 'UTC')).toISOString() }));
+    .filter(e => getKind(e) === "income" && !incomeIdsInRuns.has(e.id))
+    .map(e => ({ ...e, date: getDate(e).toISOString() }));
 
   const place = (e: Entry, field: "expenses" | "incomes") => {
-    const d = normalize(parseDateInTimezone(e.date, 'UTC'));
+    const d = getDate(e);
     for (const p of periods) {
       if (d >= p.start && isBefore(d, p.end)) {
         if (field === 'expenses') p.expenses.push(e);
@@ -83,8 +99,8 @@ export function buildPayPeriods(all: Entry[], clusterGapDays = 1): PayPeriod[] {
   bonusIncomes.forEach(i => place(i, "incomes"));
 
   periods.forEach(p => {
-    const income = p.incomes.reduce((s, e) => s + Math.abs(e.amount), 0);
-    const exp = p.expenses.reduce((s, e) => s + Math.abs(e.amount), 0);
+    const income = p.incomes.reduce((s, e) => s + getAmt(e), 0);
+    const exp = p.expenses.reduce((s, e) => s + getAmt(e), 0);
     p.totals = { income, expenses: exp, net: income - exp };
   });
 
@@ -99,6 +115,6 @@ export function findPeriodForDate(periods: PayPeriod[], day: Date): PayPeriod | 
 export function spentSoFar(period: PayPeriod, day: Date): number {
   const d = normalize(day);
   return period.expenses
-    .filter(e => normalize(parseDateInTimezone(e.date, 'UTC')) <= d)
-    .reduce((s, e) => s + Math.abs(e.amount), 0);
+    .filter(e => getDate(e) <= d)
+    .reduce((s, e) => s + getAmt(e), 0);
 }
