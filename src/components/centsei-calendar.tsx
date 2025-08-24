@@ -19,20 +19,35 @@ import {
   setYear,
   setMonth,
   getMonth,
+
+  addDays,
+
+
 } from "date-fns";
-import { ChevronLeft, ChevronRight, Plus, Trash2, TrendingUp, TrendingDown, Repeat, Check, Trophy, ChevronDown, Cake, PartyPopper } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Check, Cake, PartyPopper, AlertCircle } from "lucide-react";
 
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+
+import { cn, formatCurrency, parseDateInTimezone } from "@/lib/utils";
+import type { Entry, SelectedInstance, Birthday, Holiday, BudgetScore, DojoRank, Goal } from "@/lib/types";
+
 import { cn, formatCurrency } from "@/lib/utils";
 import type { Entry, WeeklyBalances, SelectedInstance, Birthday, Holiday, BudgetScore, DojoRank, Goal, MasterEntry } from "@/lib/types";
 import { Checkbox } from "./ui/checkbox";
+
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { useMedia } from "react-use";
 import { getHolidaysForYear } from "@/lib/holidays";
+
+import { PayPeriod, findPeriodForDate } from "@/lib/pay-periods";
+
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { BudgetScoreWidget } from "./budget-score-widget";
 import { DojoJourneyWidget } from "./dojo-journey-widget";
@@ -43,6 +58,7 @@ import { parseDateInTimezone } from "@/lib/time";
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const HOLD_DURATION_MS = 500; // 500ms for press-and-hold
+
 
 function getOriginalIdFromInstance(key: string) {
   const m = key.match(/^(.*)-(\d{4})-(\d{2})-(\d{2})$/);
@@ -60,14 +76,7 @@ type CentseiCalendarProps = {
     setEntryDialogOpen: (isOpen: boolean) => void;
     openDayEntriesDialog: (holidays: Holiday[], birthdays: Birthday[]) => void;
     isReadOnly: boolean;
-    weeklyBalances: WeeklyBalances;
-    weeklyTotals: {
-        income: number;
-        bills: number;
-        net: number;
-        startOfWeekBalance: number;
-        status: number;
-    },
+    payPeriods: PayPeriod[];
     isSelectionMode: boolean;
     toggleSelectionMode: () => void;
     selectedInstances: SelectedInstance[];
@@ -81,47 +90,172 @@ type CentseiCalendarProps = {
     onScoreInfoClick: () => void;
     onScoreHistoryClick: () => void;
     onDojoInfoClick: () => void;
+
+    activePeriodIndex: number;
+    initialBalance: number;
+
     onInstancePaidToggle: (instanceId: string, isPaid: boolean) => void;
+
+};
+
+type DayCellProps = {
+  dayDate: Date;
+  entriesForDay: Entry[];
+  isCurrentMonth: boolean;
+  isToday: boolean;
+  onSelect: () => void;
+  isSelected: boolean;
+  isSelectionMode: boolean;
+  toggleSelection: (instanceId: string, masterId: string) => void;
+  selectedInstances: SelectedInstance[];
+  onDrop: (e: React.DragEvent<HTMLDivElement>, day: Date) => void;
+  onDragStart: (e: React.DragEvent<HTMLDivElement>, entry: Entry) => void;
+  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => void;
 };
 
 
+export function SidebarContent({ periods, activeIndex, initialBalance }: { periods: PayPeriod[], activeIndex: number, initialBalance: number }) {
+    if (activeIndex === -1 || !periods[activeIndex]) {
+        return (
+            <div className="p-4 md:p-6 text-center text-muted-foreground">
+                <AlertCircle className="mx-auto h-8 w-8 mb-2" />
+                <p>Select a day to see its period summary.</p>
+                 <p className="text-xs mt-2">If you have no income entries, add one to create your first pay period.</p>
+            </div>
+        )
+    }
+
+
+    const period = periods[activeIndex];
+    
+    // Calculate starting balance for the active period
+    const startingBalance = periods.slice(0, activeIndex).reduce((acc, p) => acc + p.totals.net, initialBalance);
+    const endBalance = startingBalance + period.totals.net;
+    
+
 export function SidebarContent({ weeklyTotals, selectedDate }: { weeklyTotals: CentseiCalendarProps['weeklyTotals'], selectedDate: Date }) {
+
     return (
-        <div className="p-4 md:p-6 space-y-6">
+        <div className="p-4 md:p-6 space-y-4">
             <Card>
                 <CardHeader>
-                    <CardTitle>Week of {format(startOfWeek(selectedDate), "MMM d")}</CardTitle>
+                    <CardTitle className="text-base">
+                        Period: {format(period.start, 'MMM d')} - {format(addDays(period.end, -1), 'MMM d')}
+                    </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">Starting Balance</span>
-                        <span className="font-semibold">{formatCurrency(weeklyTotals.startOfWeekBalance)}</span>
+                 <CardContent className="text-sm space-y-2">
+                    <div className="flex justify-between">
+                        <span>Starting Balance</span>
+                        <span>{formatCurrency(startingBalance)}</span>
                     </div>
-                    <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
-                        <span><TrendingUp className="inline-block mr-2 h-4 w-4" />Income</span>
-                        <span className="font-semibold">{formatCurrency(weeklyTotals.income)}</span>
+                    <div className="flex justify-between">
+                        <span className="text-emerald-600 dark:text-emerald-400">Income</span>
+                        <span className="text-emerald-600 dark:text-emerald-400">{formatCurrency(period.totals.income)}</span>
                     </div>
-                    <div className="flex justify-between items-center text-destructive">
-                        <span><TrendingDown className="inline-block mr-2 h-4 w-4" />Bills</span>
-                        <span className="font-semibold">{formatCurrency(weeklyTotals.bills)}</span>
+                    <div className="flex justify-between">
+                        <span className="text-destructive">Bills</span>
+                        <span className="text-destructive">{formatCurrency(period.totals.expenses)}</span>
                     </div>
-                    <div className="flex justify-between items-center text-sm text-muted-foreground pt-2 border-t">
-                        <span>Weekly Status</span>
-                        <span className={cn("font-bold", weeklyTotals.status > 0 ? "text-emerald-600" : weeklyTotals.status < 0 ? "text-destructive" : "")}>
-                            {weeklyTotals.status >= 0 ? '+' : ''}{formatCurrency(weeklyTotals.status)}
-                        </span>
+                     <div className="flex justify-between font-semibold pt-2 border-t">
+                        <span>Period Net</span>
+                        <span className={cn(period.totals.net < 0 && "text-destructive")}>{formatCurrency(period.totals.net)}</span>
                     </div>
-                    <div className="flex justify-between items-center text-lg font-bold pt-2 border-t">
-                        <span>End of Week</span>
-                        <span>{formatCurrency(weeklyTotals.net)}</span>
+                    <div className="flex justify-between font-bold text-base pt-2 border-t">
+                        <span>End of Period</span>
+                        <span>{formatCurrency(endBalance)}</span>
                     </div>
-                </CardContent>
+                 </CardContent>
             </Card>
         </div>
-    );
+    )
 }
 
-export function CentseiCalendar({
+function DayCell(props: DayCellProps) {
+  const {
+    dayDate,
+    entriesForDay,
+    isCurrentMonth,
+    isToday,
+    onSelect,
+    isSelected,
+    isSelectionMode,
+    toggleSelection,
+    selectedInstances,
+    onDrop,
+    onDragStart,
+    onPointerDown,
+    onPointerUp,
+  } = props;
+  
+  return (
+    <div
+      onDrop={(e) => onDrop(e, dayDate)}
+      onDragOver={(e) => e.preventDefault()}
+      onClick={onSelect}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      className={cn(
+        "relative flex h-full min-h-[120px] flex-col rounded-lg border p-2 transition-colors",
+        !isCurrentMonth && "text-muted-foreground bg-muted/30",
+        isToday && "border-primary",
+        isSelected && "bg-day-selected/20 border-day-selected",
+        "bg-secondary/20"
+      )}
+    >
+      <div className={cn("mb-1 text-right text-sm", isToday ? "font-bold text-primary" : "")}>
+        {format(dayDate, "d")}
+      </div>
+      <ScrollArea className="flex-1">
+        <div className="space-y-1">
+          {entriesForDay.map(entry => (
+            <div
+              key={entry.id}
+              draggable
+              onDragStart={(e) => onDragStart(e, entry)}
+              onClick={(e) => {
+                  if(isSelectionMode) {
+                      e.stopPropagation();
+                      toggleSelection(entry.id, getOriginalIdFromInstance(entry.id));
+                  }
+              }}
+              className={cn(
+                "group relative flex cursor-pointer items-center justify-between rounded-md p-1.5 text-xs shadow-sm",
+                entry.isPaid ? 'bg-secondary text-muted-foreground' : entry.type === 'bill' ? 'bg-destructive/20' : 'bg-emerald-500/20',
+                isSelectionMode && "cursor-pointer",
+                selectedInstances.some(inst => inst.instanceId === entry.id) && "ring-2 ring-primary ring-offset-2"
+              )}
+            >
+              <div className="flex items-center gap-1.5 overflow-hidden">
+                  {entry.isPaid ? (
+                    <Check className="h-4 w-4 text-muted-foreground shrink-0" />
+                  ) : entry.type === 'bill' ? (
+                      <Image src="/bills.png" alt="Bill" width={16} height={16} draggable={false} className="shrink-0" />
+                  ) : (
+                      <Image src="/income.png" alt="Income" width={16} height={16} draggable={false} className="shrink-0" />
+                  )}
+                  <span className={cn("truncate", entry.isPaid && "line-through")}>{entry.name}</span>
+              </div>
+               {isSelectionMode ? (
+                 <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Check className="h-5 w-5 text-white" />
+                 </div>
+               ) : (
+                <span className={cn("font-semibold", entry.isPaid && "line-through")}>
+                    {formatCurrency(entry.amount)}
+                </span>
+               )}
+            </div>
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+
+export function CentseiCalendar(props: CentseiCalendarProps) {
+  const {
     entries,
     generatedEntries,
     timezone,
@@ -132,8 +266,7 @@ export function CentseiCalendar({
     setEntryDialogOpen,
     openDayEntriesDialog,
     isReadOnly,
-    weeklyBalances,
-    weeklyTotals,
+    payPeriods,
     isSelectionMode,
     toggleSelectionMode,
     selectedInstances,
@@ -147,6 +280,27 @@ export function CentseiCalendar({
     onScoreInfoClick,
     onScoreHistoryClick,
     onDojoInfoClick,
+
+    setEntries,
+    activePeriodIndex,
+    initialBalance,
+  } = props;
+  
+  const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
+  const [localSelectedDate, setLocalSelectedDate] = useState(new Date());
+  const [draggingEntry, setDraggingEntry] = useState<Entry | null>(null);
+
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isMobile = useMedia("(max-width: 768px)", false);
+  
+  const handleDayInteraction = (day: Date, isLongPress: boolean = false) => {
+    setSelectedDate(day);
+    setLocalSelectedDate(day);
+
+    if (isReadOnly) return;
+    
+    const dayEntries = generatedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), day));
+
     onInstancePaidToggle,
 }: CentseiCalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -169,6 +323,7 @@ export function CentseiCalendar({
     if (isReadOnly) return;
     
     const dayEntries = generatedEntries.filter(e => isSameDay(parseDateInTimezone(e.date, timezone), day));
+
     const dayHolidays = getHolidaysForYear(getYear(day)).filter(h => isSameDay(h.date, day));
     const dayBirthdays = birthdays.filter(b => {
       if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
@@ -177,6 +332,17 @@ export function CentseiCalendar({
     });
 
     const hasContent = dayEntries.length > 0 || dayHolidays.length > 0 || dayBirthdays.length > 0;
+
+    
+    // On Desktop: click on content opens day dialog.
+    if (!isMobile && hasContent) {
+      openDayEntriesDialog(dayHolidays, dayBirthdays);
+    }
+    
+    // On Mobile: long-press on content opens day dialog.
+    if (isMobile && isLongPress && hasContent) {
+      openDayEntriesDialog(dayHolidays, dayBirthdays);
+
 
     if (hasContent) {
       openDayEntriesDialog(dayHolidays, dayBirthdays);
@@ -205,9 +371,44 @@ export function CentseiCalendar({
     // On desktop (not mobile), a simple click should trigger the dialog immediately if content exists.
     if (!isMobile) {
         handleDayInteraction(day);
+
     }
   }, [isMobile, handleDayInteraction]);
   
+
+   const handlePointerDown = (day: Date) => {
+    if (!isMobile || isReadOnly) return;
+
+    longPressTimerRef.current = setTimeout(() => {
+      handleDayInteraction(day, true); // Signal that it's a long press
+    }, 500); // 500ms for long press
+  };
+
+  const handlePointerUp = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+  
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, entry: Entry) => {
+      if (isReadOnly) return;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', entry.id);
+      setDraggingEntry(entry);
+  }
+  
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>, day: Date) => {
+      e.preventDefault();
+      if (!draggingEntry || isReadOnly) return;
+      
+      const newDate = format(day, 'yyyy-MM-dd');
+      if (newDate !== draggingEntry.date) {
+        onMoveRequest(draggingEntry, newDate);
+      }
+      setDraggingEntry(null);
+  };
+
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!pointerDownRef.current || !holdTimeoutRef.current) return;
     
@@ -268,110 +469,89 @@ export function CentseiCalendar({
 
 
   const days = useMemo(() => eachDayOfInterval({ start: startOfWeek(startOfMonth(currentDate)), end: endOfWeek(endOfMonth(currentDate)) }), [currentDate]);
+
   
-  const entriesByDate = useMemo(() => {
-    const map = new Map<string, Entry[]>();
-    generatedEntries.forEach(entry => {
-      const dateKey = entry.date;
-      const dayEntries = map.get(dateKey) || [];
-      dayEntries.push(entry);
-      map.set(dateKey, dayEntries);
-    });
-    // Sort entries within each day
-    map.forEach((dayEntries, dateKey) => {
-      dayEntries.sort((a,b) => (a.order ?? 99) - (b.order ?? 99));
-      map.set(dateKey, dayEntries);
-    });
-    return map;
-  }, [generatedEntries]);
+  const days = useMemo(() => {
+    const start = startOfWeek(startOfMonth(currentMonthDate));
+    const end = endOfWeek(endOfMonth(currentMonthDate));
+    return eachDayOfInterval({ start, end });
+  }, [currentMonthDate]);
 
-  const holidaysByDate = useMemo(() => {
-    const map = new Map<string, Holiday[]>();
-    const year = getYear(currentDate);
-    const holidays = [...getHolidaysForYear(year), ...getHolidaysForYear(year - 1), ...getHolidaysForYear(year + 1)];
-    holidays.forEach(h => {
-        const dateKey = format(h.date, 'yyyy-MM-dd');
-        const dayHolidays = map.get(dateKey) || [];
-        dayHolidays.push(h);
-        map.set(dateKey, dayHolidays);
-    });
-    return map;
-  }, [currentDate]);
+  const goToPreviousMonth = () => setCurrentMonthDate(subMonths(currentMonthDate, 1));
+  const goToNextMonth = () => setCurrentMonthDate(addMonths(currentMonthDate, 1));
+  const goToToday = () => setCurrentMonthDate(new Date());
 
-  const birthdaysByDate = useMemo(() => {
-      const map = new Map<string, Birthday[]>();
-      birthdays.forEach(b => {
-          if (typeof b.date !== 'string' || !b.date.includes('-')) return;
-          const [month, day] = b.date.split('-').map(Number);
-          const dateKey = `${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-          const dayBirthdays = map.get(dateKey) || [];
-          dayBirthdays.push(b);
-          map.set(dateKey, dayBirthdays);
-      });
-      return map;
-  }, [birthdays]);
-
+  const handleYearChange = (yearStr: string) => {
+    const year = parseInt(yearStr, 10);
+    setCurrentMonthDate(setYear(currentMonthDate, year));
+  };
+  
+  const handleMonthChange = (monthStr: string) => {
+    const monthIndex = parseInt(monthStr, 10);
+    setCurrentMonthDate(setMonth(currentMonthDate, monthIndex));
+  };
+  
+  const currentYear = getYear(currentMonthDate);
+  const years = Array.from({ length: 10 }, (_, i) => currentYear - 5 + i);
 
   return (
-    <div className="flex flex-1 overflow-hidden" ref={calendarRef} onContextMenu={(e) => e.preventDefault()}>
-      <main className="flex-1 overflow-y-auto p-1 sm:p-2 md:p-4 lg:p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={() => setCurrentDate(subMonths(currentDate, 1))}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-             <Popover>
-                <PopoverTrigger asChild>
-                    <Button variant="outline" className="min-w-[150px]">
-                      {format(currentDate, "MMMM yyyy")}
-                    </Button>
-                </PopoverTrigger>
-                 <PopoverContent className="w-auto p-0">
-                    <div className="p-2">
-                         <Select onValueChange={(y) => setCurrentDate(setYear(currentDate, parseInt(y)))} defaultValue={String(getYear(currentDate))}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select a year" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {years.map(year => <SelectItem key={year} value={String(year)}>{year}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                     <div className="grid grid-cols-3 gap-1 p-2">
-                        {MONTHS.map((month, i) => (
-                             <Button key={month} variant={getMonth(currentDate) === i ? 'default' : 'ghost'} onClick={() => setCurrentDate(setMonth(currentDate, i))}>
-                                {month}
-                            </Button>
-                        ))}
-                    </div>
-                </PopoverContent>
-             </Popover>
-            <Button variant="outline" size="icon" onClick={() => setCurrentDate(addMonths(currentDate, 1))}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-             <Button variant="ghost" onClick={() => setCurrentDate(new Date())}>Today</Button>
-          </div>
-           {!isReadOnly && !isMobile && (
+    <div className="flex flex-1 overflow-hidden" onContextMenu={(e) => e.preventDefault()}>
+      <main className="flex-1 overflow-y-auto p-4 md:p-6">
+        <header className="mb-4 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-                <Button variant={isSelectionMode ? "destructive" : "outline"} size="sm" onClick={toggleSelectionMode}>
-                    {isSelectionMode ? `Clear (${selectedInstances.length})` : 'Select'}
-                </Button>
-                 {isSelectionMode && (
-                    <Button variant="destructive" size="sm" onClick={onBulkDelete} disabled={selectedInstances.length === 0}>
-                        <Trash2 className="mr-2 h-4 w-4" /> Delete
+                <Button onClick={goToPreviousMonth} variant="outline" size="icon" className="h-9 w-9"><ChevronLeft className="h-5 w-5" /></Button>
+                <h2 className="text-xl md:text-2xl font-bold text-center">
+                    {format(currentMonthDate, "MMMM yyyy")}
+                </h2>
+                <Button onClick={goToNextMonth} variant="outline" size="icon" className="h-9 w-9"><ChevronRight className="h-5 w-5" /></Button>
+                <Button onClick={goToToday} variant="outline" className="hidden sm:inline-flex">Today</Button>
+            </div>
+            
+            <div className="flex items-center gap-2">
+                 {!isReadOnly && (
+                    <Button onClick={toggleSelectionMode} variant={isSelectionMode ? "secondary" : "outline"}>
+                        {isSelectionMode ? `Done (${selectedInstances.length})` : 'Select'}
                     </Button>
                  )}
-                <Button size="sm" onClick={() => openNewEntryDialog(currentDate)}>
-                   <Plus className="mr-2 h-4 w-4" /> Add
-                </Button>
+                 {isSelectionMode && (
+                     <Button variant="destructive" onClick={onBulkDelete} disabled={selectedInstances.length === 0}>Delete</Button>
+                 )}
             </div>
-           )}
-        </div>
+        </header>
+
         <div className="grid grid-cols-7 gap-1">
-          {WEEKDAYS.map((day) => (
-            <div key={day} className="text-center font-semibold text-muted-foreground text-sm pb-2">{day}</div>
-          ))}
+          {WEEKDAYS.map((day) => <div key={day} className="text-center text-sm font-semibold text-muted-foreground">{day}</div>)}
+        </div>
+        <div className="grid grid-cols-7 grid-rows-5 gap-1 flex-1">
           {days.map((day) => {
+
+            const dayEntries = generatedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), day));
+            return (
+              <DayCell
+                key={day.toISOString()}
+                dayDate={day}
+                entriesForDay={dayEntries}
+                isCurrentMonth={isSameMonth(day, currentMonthDate)}
+                isToday={isToday(day)}
+                isSelected={isSameDay(day, localSelectedDate)}
+                onSelect={() => handleDayInteraction(day)}
+                onDrop={handleDrop}
+                onDragStart={handleDragStart}
+                onPointerDown={() => handlePointerDown(day)}
+                onPointerUp={handlePointerUp}
+                isSelectionMode={isSelectionMode}
+                toggleSelection={(instanceId, masterId) => {
+                    const date = format(day, 'yyyy-MM-dd');
+                    const exists = selectedInstances.some(inst => inst.instanceId === instanceId);
+                    if (exists) {
+                        setSelectedInstances(prev => prev.filter(inst => inst.instanceId !== instanceId));
+                    } else {
+                        setSelectedInstances(prev => [...prev, { instanceId, masterId, date }]);
+                    }
+                }}
+                selectedInstances={selectedInstances}
+              />
+
             const dateKey = format(day, 'yyyy-MM-dd');
             const dayEntries = entriesByDate.get(dateKey) || [];
             const dayHolidays = holidaysByDate.get(dateKey) || [];
@@ -476,16 +656,24 @@ export function CentseiCalendar({
                   </div>
                 </ScrollArea>
               </div>
+
             );
           })}
         </div>
       </main>
       {!isMobile && (
+
+        <aside className="w-[300px] border-l p-4 md:p-6 hidden lg:block">
+            <ScrollArea className="h-full">
+              <SidebarContent periods={payPeriods} activeIndex={activePeriodIndex} initialBalance={initialBalance} />
+            </ScrollArea>
+
         <aside className="w-1/3 max-w-sm border-l overflow-y-auto hidden lg:block bg-secondary/50">
            <SidebarContent 
                 weeklyTotals={weeklyTotals} 
                 selectedDate={selectedDate || new Date()}
             />
+
         </aside>
       )}
     </div>

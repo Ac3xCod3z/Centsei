@@ -1,4 +1,5 @@
 
+
 import { Suspense } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Logo } from '@/components/icons';
@@ -10,7 +11,7 @@ function ViewPageSkeleton() {
         <header className="flex h-16 items-center justify-between border-b px-4 md:px-6 shrink-0">
           <div className="flex items-center gap-2">
             <Logo height={50} width={50} />
-            <h1 className="text-2xl font-bold text-white">Centsei</h1>
+            <h1 className="text-2xl font-bold text-foreground">Centsei</h1>
           </div>
           <Skeleton className="h-10 w-10 md:hidden" />
         </header>

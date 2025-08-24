@@ -24,6 +24,8 @@
     --input: 240 5.9% 90%;
     --ring: 240 5% 64.9%;
     --radius: 0.5rem;
+    --day-selected: hsl(var(--primary));
+    --day-selected-foreground: 0 0% 98%;
   }
  
   .dark {
@@ -46,6 +48,9 @@
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
     --ring: 240 4.9% 83.9%;
+    --radius: 0.5rem;
+    --day-selected: hsl(var(--primary));
+    --day-selected-foreground: 0 0% 98%;
   }
 }
 
