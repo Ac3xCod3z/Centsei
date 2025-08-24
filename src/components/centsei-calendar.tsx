@@ -199,10 +199,13 @@ function DayCell(props: DayCellProps) {
               )}
             >
               <div className="flex items-center gap-1.5 overflow-hidden">
-                  <div className={cn(
-                      "h-1.5 w-1.5 shrink-0 rounded-full",
-                      entry.isPaid ? 'bg-muted-foreground' : entry.type === 'bill' ? 'bg-destructive' : 'bg-emerald-500'
-                  )}></div>
+                  {entry.isPaid ? (
+                    <Check className="h-4 w-4 text-muted-foreground shrink-0" />
+                  ) : entry.type === 'bill' ? (
+                      <Image src="/bills.png" alt="Bill" width={16} height={16} draggable={false} className="shrink-0" />
+                  ) : (
+                      <Image src="/income.png" alt="Income" width={16} height={16} draggable={false} className="shrink-0" />
+                  )}
                   <span className={cn("truncate", entry.isPaid && "line-through")}>{entry.name}</span>
               </div>
                {isSelectionMode ? (
@@ -407,5 +410,3 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
     </div>
   );
 }
-
-    

@@ -96,5 +96,8 @@ This is the central part of the application.
 *   **`tailwind.config.ts`**: The configuration file for Tailwind CSS, where custom fonts (`Inter`) and theme extensions are defined.
 *   **`src/components/ui/`**: This directory holds all the base ShadCN components (Button, Card, etc.).
 *   **Icons**: The `lucide-react` library is used for most icons to ensure a consistent, clean aesthetic.
-
-This document outlines the current, stable state of the Centsei application. It should be used as the primary reference for all future development work.
+*   **Calendar Entry Styling**:
+    *   Unpaid bill entries have a reddish background.
+    *   Unpaid income entries have a greenish background.
+    *   Each entry type is preceded by a distinct icon (e.g., bill icon for bills, money icon for income).
+    *   When an entry is marked as "paid" or "received," its icon is replaced with a grey checkmark, its name is struck through, and its background becomes a muted grey. This provides a clear visual confirmation of completed transactions.
