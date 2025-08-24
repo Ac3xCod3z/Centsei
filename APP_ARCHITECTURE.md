@@ -61,18 +61,21 @@ This is the central part of the application.
     *   Fetches and manages all financial data (entries, goals, birthdays).
     *   Handles all create, update, and delete operations.
     *   Manages the state of all dialogs (for new entries, settings, summaries).
-    *   Calculates high-level financial data like weekly totals and the budget score.
+    *   Calculates high-level financial data like pay periods and the budget score.
+    *   Renders a global "Add Entry" button.
 *   **`src/components/centsei-calendar.tsx`**: The component that renders the main calendar grid.
     *   Receives all financial data as props from the dashboard.
     *   Uses `date-fns` to calculate and display the days.
     *   Maps over entries to display bills and income on the correct days.
-    *   Handles all user interactions (clicks, drags, mobile taps, and long-presses) to provide an intuitive experience.
+    *   **Handles all user interactions**:
+        *   **Desktop:** A click on a day with entries opens the `DayEntriesDialog`. A click on an empty day highlights it.
+        *   **Mobile:** A tap on any day highlights it. A long press on a day with entries opens the `DayEntriesDialog`. Text selection and context menus are disabled.
 *   **`src/components/entry-dialog.tsx`**: The form for creating and editing financial entries. It uses `react-hook-form` and `zod` for robust validation. It also contains the logic for handling recurring entry updates.
 
 #### 3. AI-Powered Features
 
 *   **Genkit Flows (`src/ai/flows/`)**: Contains the definitions for our AI agents.
-    *   **`sensei-says.ts`**: Defines a flow that takes the user's financial context (budget score, rank, net flow) and generates a short, context-aware financial mantra using the Gemini model.
+    *   **`sensei-says.ts`**: Defines a flow that takes the user's financial context (budget score, rank, net flow, upcoming events, goals, streaks) and generates a short, context-aware financial mantra using the Gemini model.
     *   **`rollover-optimization.ts`**: Defines a flow that recommends a monthly rollover strategy based on the user's income and goals.
 *   **AI Hook (`src/lib/sensei/useSenseiSays.ts`)**: A custom React hook providing a clean interface for the UI to interact with the "Sensei Says" AI. It handles API calls, caching, rate-limiting, and state management.
 *   **UI (`src/components/sensei-says-ui.tsx`)**: The floating action button and card that display the AI-generated mantras.

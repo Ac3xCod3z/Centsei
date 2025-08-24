@@ -89,19 +89,12 @@ type DayCellProps = {
 };
 
 
-type SidebarContentProps = {
-    periods: PayPeriod[];
-    activeIndex: number;
-    initialBalance: number;
-}
-
-
-export function SidebarContent({ periods, activeIndex, initialBalance }: SidebarContentProps) {
+export function SidebarContent({ periods, activeIndex, initialBalance }: { periods: PayPeriod[], activeIndex: number, initialBalance: number }) {
     if (activeIndex === -1 || !periods[activeIndex]) {
         return (
             <div className="p-4 md:p-6 text-center text-muted-foreground">
                 <AlertCircle className="mx-auto h-8 w-8 mb-2" />
-                <p>Select a day within a pay period to see its summary.</p>
+                <p>Select a day to see its period summary.</p>
                  <p className="text-xs mt-2">If you have no income entries, add one to create your first pay period.</p>
             </div>
         )
@@ -177,8 +170,8 @@ function DayCell(props: DayCellProps) {
         "relative flex h-full min-h-[120px] flex-col rounded-lg border p-2 transition-colors",
         !isCurrentMonth && "text-muted-foreground bg-muted/30",
         isToday && "border-primary",
-        isSelected && "bg-primary/10",
-        period && "bg-secondary/20"
+        isSelected && "bg-destructive/20 border-destructive",
+        period && !isSelected && "bg-secondary/20"
       )}
       onClick={onSelect}
     >
@@ -285,8 +278,6 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
     
     if (hasContent) {
       openDayEntriesDialog(dayHolidays, dayBirthdays);
-    } else {
-      openNewEntryDialog(day);
     }
   };
 
@@ -294,21 +285,7 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
     if (!isMobile || isReadOnly) return;
 
     longPressTimerRef.current = setTimeout(() => {
-      setLocalSelectedDate(day);
-      setSelectedDate(day);
-
-      const dayEntries = generatedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), day));
-      const dayHolidays = getHolidaysForYear(getYear(day)).filter(h => isSameDay(h.date, day));
-      const dayBirthdays = birthdays.filter(b => {
-        if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
-        const [bMonth, bDay] = b.date.split('-').map(Number);
-        return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
-      });
-
-      const hasContent = dayEntries.length > 0 || dayHolidays.length > 0 || dayBirthdays.length > 0;
-      if (hasContent) {
-        openDayEntriesDialog(dayHolidays, dayBirthdays);
-      }
+        handleDayInteraction(day);
     }, 500); // 500ms for long press
   };
 
@@ -316,11 +293,8 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
     }
-    if (isMobile) {
-        // On mobile, a simple tap just selects the day
-        setLocalSelectedDate(day);
-        setSelectedDate(day);
-    }
+    setLocalSelectedDate(day);
+    setSelectedDate(day);
   };
   
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, entry: Entry) => {
@@ -417,7 +391,7 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
                 isCurrentMonth={isSameMonth(day, currentMonthDate)}
                 isToday={isToday(day)}
                 isSelected={isSameDay(day, localSelectedDate)}
-                onSelect={isMobile ? () => handlePointerUp(day) : () => handleDayInteraction(day)}
+                onSelect={() => isMobile ? handlePointerUp(day) : handleDayInteraction(day)}
                 onDrop={handleDrop}
                 onDragStart={handleDragStart}
                 payPeriods={payPeriods}

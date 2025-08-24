@@ -375,13 +375,40 @@ export default function CentseiDashboard() {
     }
   };
 
+  const updateSeries = async (id: string, fullEntryData: any) => {
+    const masterEntry = entries.find(e => e.id === id);
+    if (!masterEntry) return;
+
+    const cleanedExceptions: typeof masterEntry.exceptions = {};
+    if (masterEntry.exceptions) {
+      for (const [date, ex] of Object.entries(masterEntry.exceptions)) {
+        if (ex && !ex.movedTo && !ex.movedFrom) {
+          cleanedExceptions[date] = ex;
+        }
+      }
+    }
+
+    const seriesData = {
+      ...fullEntryData,
+      id: undefined, // Don't save ID in the document body
+      exceptions: cleanedExceptions,
+      recurrenceCount: fullEntryData.recurrenceCount || masterEntry.recurrenceCount
+    };
+
+    if (user) {
+      await updateDoc(doc(firestore, 'users', user.uid, 'calendar_entries', id), stripUndefined({ ...seriesData, updated_at: serverTimestamp() }));
+    } else {
+      setEntries(prev => prev.map(e => (e.id === id ? { ...e, ...seriesData, id } : e)));
+    }
+  };
+
+
   const handleSaveEntry = async (
       entryToSave: Omit<Entry, 'id' | 'date'> & { id?: string; date: Date; originalDate?: string },
       isSeriesUpdate = false
   ) => {
     const { originalDate, ...data } = entryToSave;
     const masterId = data.id ? getOriginalIdFromInstance(data.id) : undefined;
-
     const masterEntry = masterId ? entries.find(e => e.id === masterId) : undefined;
     
     if (masterEntry && masterEntry.recurrence !== 'none' && !isSeriesUpdate && data.id) {
@@ -394,36 +421,12 @@ export default function CentseiDashboard() {
     const saveData: any = { ...data };
     if (saveData.date) saveData.date = format(saveData.date, 'yyyy-MM-dd');
     if (saveData.recurrenceEndDate) saveData.recurrenceEndDate = format(saveData.recurrenceEndDate, 'yyyy-MM-dd');
-
-    const updateSeries = async (id: string, fullEntryData: any) => {
-        const cleanedExceptions: typeof masterEntry.exceptions = {};
-        if (masterEntry?.exceptions) {
-            for (const [date, ex] of Object.entries(masterEntry.exceptions)) {
-                if (ex && !ex.movedTo && !ex.movedFrom) {
-                    cleanedExceptions[date] = ex;
-                }
-            }
-        }
-        
-        const seriesData = {
-          ...fullEntryData,
-          id: undefined, // Don't save ID in the document body
-          exceptions: cleanedExceptions,
-        };
-
-        if (user) {
-            await updateDoc(doc(firestore, 'users', user.uid, 'calendar_entries', id), stripUndefined({ ...seriesData, updated_at: serverTimestamp() }));
-        } else {
-            setEntries(prev => prev.map(e => (e.id === id ? { ...seriesData, id } : e)));
-        }
-    };
     
     if (masterId && masterEntry) {
         if (isSeriesUpdate) {
             await updateSeries(masterId, saveData);
         } else { // Single instance update
              if (masterEntry.recurrence === 'none') {
-                 // It's a non-recurring entry, just update the master
                  await updateSeries(masterId, saveData);
              } else {
                  // It's a recurring entry, create an exception
@@ -743,21 +746,7 @@ export default function CentseiDashboard() {
   };
   
   const openDayEntriesDialog = (holidays: Holiday[], dayBirthdays: Birthday[]) => {
-    const dayEntries = allGeneratedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), selectedDate));
-    
-    // Memoize this?
-    const dayData = {
-        date: selectedDate,
-        entries: dayEntries,
-        holidays: holidays,
-        birthdays: dayBirthdays
-    };
-
-    if (dayEntries.length > 0 || holidays.length > 0 || dayBirthdays.length > 0) {
-      setDayEntriesDialogOpen(true);
-    } else {
-      openNewEntryDialog(selectedDate);
-    }
+    setDayEntriesDialogOpen(true);
   };
 
   const handleEditFromDayDialog = (entry: Entry) => {
@@ -898,11 +887,7 @@ export default function CentseiDashboard() {
                         <SheetTitle>Pay Period</SheetTitle>
                       </SheetHeader>
                       <ScrollArea className="flex-1">
-                        <SidebarContent
-                          periods={payPeriods}
-                          activeIndex={activePeriodIndex}
-                          initialBalance={initialBalance}
-                        />
+                        <SidebarContent periods={payPeriods} activeIndex={activePeriodIndex} initialBalance={initialBalance} />
                       </ScrollArea>
                     </SheetContent>
                   </Sheet>
@@ -993,6 +978,16 @@ export default function CentseiDashboard() {
           activePeriodIndex={activePeriodIndex}
           initialBalance={initialBalance}
         />
+        
+        {!isMobile && (
+            <Button 
+                onClick={() => openNewEntryDialog(selectedDate)} 
+                className="fixed bottom-8 right-8 h-16 w-16 rounded-full shadow-xl"
+            >
+                <Plus className="h-8 w-8" />
+                <span className="sr-only">Add new entry</span>
+            </Button>
+        )}
       </div>
 
       <EntryDialog
@@ -1099,31 +1094,33 @@ export default function CentseiDashboard() {
         }
       }}>
         <AlertDialogContent>
-            <AlertDialogHeader>
-                <AlertDialogTitle>Update Recurring Entry</AlertDialogTitle>
-                <AlertDialogDescription>
-                    This is a recurring entry. Do you want to modify just this one occurrence, or the entire series?
-                </AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="grid grid-cols-2 gap-4 py-4">
-                <Button className="w-full" onClick={() => {
-                    if(updateRequest) handleSaveEntry(updateRequest.entry, false);
-                    if(entryToDelete) handleDeleteEntry(entryToDelete.instanceId, false);
-                    if(moveRequest) handleMoveEntry(moveRequest.entry, moveRequest.newDate, false);
-                }}>
-                    Just This One
-                </Button>
-                <Button className="w-full" variant="secondary" onClick={() => {
-                    if(updateRequest) handleSaveEntry(updateRequest.entry, true);
-                    if(entryToDelete) handleDeleteEntry(entryToDelete.instanceId, true);
-                    if(moveRequest) handleMoveEntry(moveRequest.entry, moveRequest.newDate, true);
-                }}>
-                    Entire Series
-                </Button>
-            </div>
-            <AlertDialogFooter className="!justify-center">
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-            </AlertDialogFooter>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Update Recurring Entry</AlertDialogTitle>
+            <AlertDialogDescription>
+              {moveRequest ? "How would you like to move this entry?" : entryToDelete ? "How would you like to delete this entry?" : "How would you like to update this entry?"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-4 py-4">
+              <Button className="w-full" onClick={() => {
+                  if(updateRequest) handleSaveEntry(updateRequest.entry, false);
+                  if(entryToDelete) handleDeleteEntry(entryToDelete.instanceId, false);
+                  if(moveRequest) handleMoveEntry(moveRequest.entry, moveRequest.newDate, false);
+              }}>
+                 Just This One
+                 <p className="font-normal text-xs text-muted-foreground/80 ml-2">Applies changes to this occurrence only.</p>
+              </Button>
+              <Button className="w-full" variant="secondary" onClick={() => {
+                  if(updateRequest) handleSaveEntry(updateRequest.entry, true);
+                  if(entryToDelete) handleDeleteEntry(entryToDelete.instanceId, true);
+                  if(moveRequest) handleMoveEntry(moveRequest.entry, moveRequest.newDate, true);
+              }}>
+                  This and Future
+                 <p className="font-normal text-xs text-muted-foreground/80 ml-2">Updates all entries in this series.</p>
+              </Button>
+          </div>
+          <AlertDialogFooter className="!justify-center">
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
       
