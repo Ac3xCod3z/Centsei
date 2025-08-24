@@ -68,9 +68,10 @@ This is the central part of the application.
     *   Uses `date-fns` to calculate and display the days.
     *   Maps over entries to display bills and income on the correct days.
     *   **Handles all user interactions**:
-        *   **Desktop:** A click on a day with entries opens the `DayEntriesDialog`. A click on an empty day opens the `EntryDialog` to create an entry.
+        *   **Desktop:** A click on a day with entries opens the `DayEntriesDialog`. A click on an empty day only highlights the day.
         *   **Mobile:** A tap on any day highlights it. A long press on a day with entries opens the `DayEntriesDialog`. Text selection and context menus are disabled.
 *   **`src/components/entry-dialog.tsx`**: The form for creating and editing financial entries. It uses `react-hook-form` and `zod` for robust validation. It also contains the logic for handling recurring entry updates.
+*   **`src/components/sidebar.tsx` (Conceptual - part of `centsei-calendar.tsx`)**: The sidebar provides a detailed financial summary for the currently selected pay period. It shows the starting balance, total income, total expenses, net flow for the period, and the projected ending balance. This component receives its data directly from the main dashboard to ensure accuracy.
 
 #### 3. AI-Powered Features
 

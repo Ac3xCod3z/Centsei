@@ -37,7 +37,6 @@ import { PayPeriod, findPeriodForDate } from "@/lib/pay-periods";
 
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function getOriginalIdFromInstance(key: string) {
   const m = key.match(/^(.*)-(\d{4})-(\d{2})-(\d{2})$/);
@@ -79,7 +78,6 @@ type DayCellProps = {
   isCurrentMonth: boolean;
   isToday: boolean;
   onSelect: () => void;
-  payPeriods: PayPeriod[];
   isSelected: boolean;
   isSelectionMode: boolean;
   toggleSelection: (instanceId: string, masterId: string) => void;
@@ -150,7 +148,6 @@ function DayCell(props: DayCellProps) {
     isCurrentMonth,
     isToday,
     onSelect,
-    payPeriods,
     isSelected,
     isSelectionMode,
     toggleSelection,
@@ -391,7 +388,6 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
                 onDragStart={handleDragStart}
                 onPointerDown={() => handlePointerDown(day)}
                 onPointerUp={handlePointerUp}
-                payPeriods={payPeriods}
                 isSelectionMode={isSelectionMode}
                 toggleSelection={(instanceId, masterId) => {
                     const date = format(day, 'yyyy-MM-dd');
