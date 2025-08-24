@@ -7,17 +7,18 @@ import { useSearchParams } from "next/navigation";
 import { useMedia } from "react-use";
 import Image from 'next/image';
 
-import type { Entry, RolloverPreference, WeeklyBalances, Birthday, Holiday, BillCategory } from "@/lib/types";
+import type { Entry, RolloverPreference, Birthday, Holiday, BillCategory } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Menu } from "lucide-react";
+import { Menu, AlertCircle } from "lucide-react";
 import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDay, add, setDate, getDate, startOfWeek, endOfWeek, eachWeekOfInterval, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, isWithinInterval, isAfter, max, startOfDay } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShieldAlert } from "lucide-react";
 import { parseDateInTimezone } from "@/lib/utils";
+import { buildPayPeriods, PayPeriod, findPeriodForDate, spentSoFar } from "@/lib/pay-periods";
 
 type SharedData = {
   entries: Entry[];
@@ -168,7 +169,6 @@ export default function ViewOnlyCalendar() {
   
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isMobileSheetOpen, setMobileSheetOpen] = useState(false);
-  const [weeklyBalances, setWeeklyBalances] = useState<WeeklyBalances>({});
 
   const isMobile = useMedia("(max-width: 1024px)", false);
 
@@ -210,75 +210,10 @@ export default function ViewOnlyCalendar() {
     return entries.flatMap((e) => generateRecurringInstances(e, viewStart, viewEnd, timezone));
   }, [data]);
   
-  useEffect(() => {
-    if (!data || allGeneratedEntries.length === 0) {
-        setWeeklyBalances({});
-        return;
-    }
-
-    const { rolloverPreference, timezone } = data;
-    const newWeeklyBalances: WeeklyBalances = {};
-    const sortedEntries = [...allGeneratedEntries].sort((a,b) => a.date.localeCompare(b.date));
-        
-    const firstDate = parseDateInTimezone(sortedEntries[0].date, timezone);
-    const lastDate = parseDateInTimezone(sortedEntries[sortedEntries.length - 1].date, timezone);
-    
-    const weeks = eachWeekOfInterval({ start: firstDate, end: lastDate });
-    let lastWeekBalance = 0;
-
-    weeks.forEach(weekStart => {
-        const weekEnd = endOfWeek(weekStart);
-        const weekKey = format(weekStart, 'yyyy-MM-dd');
-
-        const entriesForWeek = allGeneratedEntries.filter(e => {
-            const entryDate = parseDateInTimezone(e.date, timezone);
-            return isWithinInterval(entryDate, { start: weekStart, end: weekEnd });
-        });
-        
-        const income = entriesForWeek.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
-        const bills = entriesForWeek.filter(e => e.type === 'bill').reduce((sum, e) => sum + e.amount, 0);
-        
-        let currentWeekStartBalance = lastWeekBalance;
-        if (rolloverPreference === 'reset' && getDay(weekStart) === startOfWeek(new Date()).getDay() && weekStart.getDate() <= 7) {
-        }
-
-        const endOfWeekBalance = currentWeekStartBalance + income - bills;
-        newWeeklyBalances[weekKey] = { start: currentWeekStartBalance, end: endOfWeekBalance };
-        lastWeekBalance = endOfWeekBalance;
-    });
-    
-    if (JSON.stringify(newWeeklyBalances) !== JSON.stringify(weeklyBalances)) {
-        setWeeklyBalances(newWeeklyBalances);
-    }
-  }, [allGeneratedEntries, data, weeklyBalances]);
-
-  const weeklyTotals = useMemo(() => {
-    if (!data) {
-      return { income: 0, bills: 0, net: 0, startOfWeekBalance: 0, status: 0 };
-    }
-    const { timezone } = data;
-    const weekStart = startOfWeek(selectedDate);
-    
-    const weekEntries = allGeneratedEntries.filter(e => {
-        const entryDate = parseDateInTimezone(e.date, timezone);
-        return isWithinInterval(entryDate, {start: weekStart, end: endOfWeek(weekStart)});
-    });
-
-    const weeklyIncome = weekEntries.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
-    const weeklyBills = weekEntries.filter(e => e.type === 'bill').reduce((sum, e) => sum + e.amount, 0);
-
-    const weekKey = format(weekStart, 'yyyy-MM-dd');
-    const weekBalanceInfo = weeklyBalances[weekKey];
-    const startOfWeekBalance = weekBalanceInfo ? weekBalanceInfo.start : 0;
-    
-    return {
-        income: weeklyIncome,
-        bills: weeklyBills,
-        net: startOfWeekBalance + weeklyIncome - weeklyBills,
-        startOfWeekBalance: startOfWeekBalance,
-        status: weeklyIncome - weeklyBills,
-    };
-  }, [data, allGeneratedEntries, selectedDate, weeklyBalances]);
+  const payPeriods = useMemo(
+    () => buildPayPeriods(allGeneratedEntries, 1),
+    [allGeneratedEntries]
+  );
 
 
   if (error) {
@@ -310,21 +245,15 @@ export default function ViewOnlyCalendar() {
             </SheetTrigger>
             <SheetContent side="right" className="w-[300px] sm:w-[400px] p-0 flex flex-col">
               <SheetHeader className="p-4 md:p-6 border-b shrink-0">
-                <SheetTitle>Summary</SheetTitle>
+                <SheetTitle>Pay Period</SheetTitle>
                 <SheetDescription>
-                  Weekly summary for {format(selectedDate, "MMM d, yyyy")}.
+                  Summary for the period covering {format(selectedDate, "MMM d, yyyy")}.
                 </SheetDescription>
               </SheetHeader>
               <ScrollArea className="flex-1">
                   <SidebarContent
-                    weeklyTotals={weeklyTotals}
+                    payPeriods={payPeriods}
                     selectedDate={selectedDate}
-                    budgetScore={null}
-                    dojoRank={{ level: 0, name: 'No Rank', belt: { name: 'None', color: '' }, stripes: 0, nextMilestone: 0, nextRankName: '', progress: 0, balanceToNext: 0 }}
-                    goals={[]}
-                    onScoreInfoClick={() => {}}
-                    onScoreHistoryClick={() => {}}
-                    onDojoInfoClick={() => {}}
                   />
               </ScrollArea>
             </SheetContent>
@@ -343,8 +272,7 @@ export default function ViewOnlyCalendar() {
         setEntryDialogOpen={() => {}} // No-op for read-only view
         openDayEntriesDialog={(holidays: Holiday[], birthdays: Birthday[]) => {}} // No-op
         isReadOnly={true}
-        weeklyBalances={weeklyBalances}
-        weeklyTotals={weeklyTotals}
+        payPeriods={payPeriods}
         isSelectionMode={false}
         toggleSelectionMode={() => {}}
         selectedInstances={[]}
@@ -362,5 +290,3 @@ export default function ViewOnlyCalendar() {
     </div>
   );
 }
-
-    

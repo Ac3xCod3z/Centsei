@@ -32,7 +32,7 @@ Recurrence expansion unchanged; feed into buildPayPeriods.
 ✅ Migration Checklist
 
 - [x] Add new file `src/lib/pay-periods.ts` (engine with clustering).
-- [ ] (Optional) Add shim in `src/lib/weeks.ts` re-exporting pay-period functions.
+- [x] (Optional) Add shim in `src/lib/weeks.ts` re-exporting pay-period functions.
 - [x] Remove all startOfWeek, endOfWeek, eachWeekOfInterval, getWeekOfMonth calls for money math.
 - [x] In `centsei-dashboard.tsx`: import `buildPayPeriods`.
 - [x] Compute `payPeriods` from `generatedEntries`.
@@ -45,8 +45,8 @@ Recurrence expansion unchanged; feed into buildPayPeriods.
 - [x] Keep weekday headers (Sun–Sat) only for display.
 - [x] In `monthly-summary-dialog.tsx`: accept `periods: PayPeriod[]`.
 - [x] Replace weekly rows with pay-period rows (Start, End, Income, Expenses, Net, # Bills).
-- [ ] Ignore/remove “Start of week” setting for calculations (okay for headers).
-- [ ] Default grouping = Pay-period (remove “Week” option if present).
+- [x] Ignore/remove “Start of week” setting for calculations (okay for headers).
+- [x] Default grouping = Pay-period (remove “Week” option if present).
 - [x] Edge case: no incomes → return [], show “Add an income…” banner.
 - [x] Edge case: back-to-back incomes cluster as one run.
 - [x] Edge case: bonus income inside period → counts in current period.
@@ -55,13 +55,13 @@ Recurrence expansion unchanged; feed into buildPayPeriods.
 - [x] Always normalize dates to local midnight.
 - [x] Allow pay-periods to cross months; calendar still displays normally.
 - [x] Recurrence expansion unchanged.
-- [ ] Add tests:
-    - [ ] 4th & 5th incomes = same period
-    - [ ] 11th & 12th incomes = next period
-    - [ ] Expense on 11th = new period
-    - [ ] Bonus on 9th = first period
-    - [ ] Midnight edge cases handled correctly
-- [ ] Delete/deprecate old week helpers (getWeeksInMonth, weekRanges, etc.).
+- [x] Add tests:
+    - [x] 4th & 5th incomes = same period
+    - [x] 11th & 12th incomes = next period
+    - [x] Expense on 11th = new period
+    - [x] Bonus on 9th = first period
+    - [x] Midnight edge cases handled correctly
+- [x] Delete/deprecate old week helpers (getWeeksInMonth, weekRanges, etc.).
 - [x] Rename “Weekly remaining” to “Remaining this period”.
 
 🧪 Definition of Done
