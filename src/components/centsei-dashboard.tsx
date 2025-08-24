@@ -238,6 +238,8 @@ export default function CentseiDashboard() {
   const [notificationsEnabled, setNotificationsEnabled] = useLocalStorage('centseiNotificationsEnabled', false);
   const [budgetScoreHistory, setBudgetScoreHistory] = useLocalStorage<BudgetScore[]>('centseiBudgetScoreHistory', []);
   const [lastWelcomeMessage, setLastWelcomeMessage] = useLocalStorage<{ message: string, date: string } | null>('centseiLastWelcome', null);
+  const [initialBalance, setInitialBalance] = useLocalStorage<number>('centseiInitialBalance', 0);
+
   
   const [isEntryDialogOpen, setEntryDialogOpen] = useState(false);
   const [isSettingsDialogOpen, setSettingsDialogOpen] = useState(false);
@@ -294,6 +296,7 @@ export default function CentseiDashboard() {
             if (settings.rolloverPreference) setRolloverPreference(settings.rolloverPreference);
             if (settings.timezone) setTimezone(settings.timezone);
             if (settings.notificationsEnabled !== undefined) setNotificationsEnabled(settings.notificationsEnabled);
+            if (settings.initialBalance !== undefined) setInitialBalance(settings.initialBalance);
         }
     });
 
@@ -318,7 +321,7 @@ export default function CentseiDashboard() {
         unsubBirthdays();
         unsubSettings();
     };
-  }, [user, setEntries, setGoals, setBirthdays, setRolloverPreference, setTimezone, setNotificationsEnabled]);
+  }, [user, setEntries, setGoals, setBirthdays, setRolloverPreference, setTimezone, setNotificationsEnabled, setInitialBalance]);
 
 
   useEffect(() => {
@@ -342,6 +345,11 @@ export default function CentseiDashboard() {
     [allGeneratedEntries]
   );
   
+  const activePeriodIndex = useMemo(
+    () => payPeriods.findIndex(p => selectedDate >= p.start && selectedDate < p.end),
+    [payPeriods, selectedDate]
+  );
+
   const handleNotificationsToggle = (enabled: boolean) => {
     setNotificationsEnabled(enabled);
     if (enabled) {
@@ -891,8 +899,9 @@ export default function CentseiDashboard() {
                       </SheetHeader>
                       <ScrollArea className="flex-1">
                         <SidebarContent
-                          payPeriods={payPeriods}
-                          selectedDate={selectedDate}
+                          periods={payPeriods}
+                          activeIndex={activePeriodIndex}
+                          initialBalance={initialBalance}
                         />
                       </ScrollArea>
                     </SheetContent>
@@ -981,6 +990,8 @@ export default function CentseiDashboard() {
           onScoreInfoClick={() => setScoreInfoOpen(true)}
           onScoreHistoryClick={() => setScoreHistoryOpen(true)}
           onDojoInfoClick={() => setDojoInfoOpen(true)}
+          activePeriodIndex={activePeriodIndex}
+          initialBalance={initialBalance}
         />
       </div>
 
@@ -1080,62 +1091,34 @@ export default function CentseiDashboard() {
             onInfoClick={() => setDojoInfoOpen(true)}
         />
 
-      <AlertDialog open={!!entryToDelete} onOpenChange={() => setEntryToDelete(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Recurring Entry</AlertDialogTitle>
-            <AlertDialogDescription>
-              Do you want to delete only this occurrence or the entire series?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-             <Button variant="secondary" onClick={() => entryToDelete && handleDeleteEntry(entryToDelete.instanceId, false)}>
-                Just This One
-            </Button>
-            <AlertDialogAction onClick={() => entryToDelete && handleDeleteEntry(entryToDelete.instanceId, true)}>
-                Delete Series
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      
-      <AlertDialog open={!!moveRequest} onOpenChange={() => setMoveRequest(null)}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-                <AlertDialogTitle>Move Recurring Entry</AlertDialogTitle>
-                <AlertDialogDescription>
-                    Apply this move to just this occurrence, or the entire series?
-                </AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="grid grid-cols-2 gap-4 py-4">
-               <Button className="w-full" onClick={() => moveRequest && handleMoveEntry(moveRequest.entry, moveRequest.newDate, false)}>
-                    Just this one
-               </Button>
-               <Button className="w-full" variant="secondary" onClick={() => moveRequest && handleMoveEntry(moveRequest.entry, moveRequest.newDate, true)}>
-                   This and future
-                </Button>
-            </div>
-             <AlertDialogFooter className="!justify-center">
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-      </AlertDialog>
-      
-      <AlertDialog open={!!updateRequest} onOpenChange={() => setUpdateRequest(null)}>
+      <AlertDialog open={!!updateRequest || !!entryToDelete || !!moveRequest} onOpenChange={(open) => {
+        if (!open) {
+            setUpdateRequest(null);
+            setEntryToDelete(null);
+            setMoveRequest(null);
+        }
+      }}>
         <AlertDialogContent>
             <AlertDialogHeader>
                 <AlertDialogTitle>Update Recurring Entry</AlertDialogTitle>
                 <AlertDialogDescription>
-                   Apply changes to this occurrence only, or update the entire series?
+                    This is a recurring entry. Do you want to modify just this one occurrence, or the entire series?
                 </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="grid grid-cols-2 gap-4 py-4">
-                <Button className="w-full" onClick={() => updateRequest && handleSaveEntry(updateRequest.entry, false)}>
-                    Just this one
+                <Button className="w-full" onClick={() => {
+                    if(updateRequest) handleSaveEntry(updateRequest.entry, false);
+                    if(entryToDelete) handleDeleteEntry(entryToDelete.instanceId, false);
+                    if(moveRequest) handleMoveEntry(moveRequest.entry, moveRequest.newDate, false);
+                }}>
+                    Just This One
                 </Button>
-                <Button className="w-full" variant="secondary" onClick={() => updateRequest && handleSaveEntry(updateRequest.entry, true)}>
-                    This and future
+                <Button className="w-full" variant="secondary" onClick={() => {
+                    if(updateRequest) handleSaveEntry(updateRequest.entry, true);
+                    if(entryToDelete) handleDeleteEntry(entryToDelete.instanceId, true);
+                    if(moveRequest) handleMoveEntry(moveRequest.entry, moveRequest.newDate, true);
+                }}>
+                    Entire Series
                 </Button>
             </div>
             <AlertDialogFooter className="!justify-center">

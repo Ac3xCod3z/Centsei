@@ -19,6 +19,7 @@ import {
   setYear,
   setMonth,
   getMonth,
+  addDays,
 } from "date-fns";
 import { ChevronLeft, ChevronRight, Plus, Check, Cake, PartyPopper, AlertCircle } from "lucide-react";
 
@@ -68,13 +69,26 @@ type CentseiCalendarProps = {
     onScoreInfoClick: () => void;
     onScoreHistoryClick: () => void;
     onDojoInfoClick: () => void;
+    activePeriodIndex: number;
+    initialBalance: number;
 };
 
+function computeStartingBalance(
+    periods: PayPeriod[],
+    activeIndex: number,
+    initialBalance: number = 0
+  ): number {
+    let bal = initialBalance;
+    for (let i = 0; i < activeIndex; i++) {
+      bal += periods[i].totals.net;
+    }
+    return bal;
+  }
 
-export function SidebarContent({ payPeriods, selectedDate }: { payPeriods: PayPeriod[], selectedDate: Date }) {
+export function SidebarContent({ periods, activeIndex, initialBalance }: { periods: PayPeriod[], activeIndex: number, initialBalance: number }) {
     
-    const period = useMemo(() => findPeriodForDate(payPeriods, selectedDate), [payPeriods, selectedDate]);
-
+    const period = periods[activeIndex];
+    
     if (!period) {
         return (
              <div className="p-4 md:p-6 space-y-6 text-center text-muted-foreground">
@@ -85,13 +99,21 @@ export function SidebarContent({ payPeriods, selectedDate }: { payPeriods: PayPe
         );
     }
     
+    const startingBalance = computeStartingBalance(periods, activeIndex, initialBalance);
+    const endBalance = startingBalance + period.totals.net;
+
+
     return (
         <div className="p-4 md:p-6 space-y-6">
             <Card>
                 <CardHeader>
-                    <CardTitle>Period: {format(period.start, "MMM d")} - {format(period.end, "MMM d")}</CardTitle>
+                    <CardTitle>Period: {format(period.start, "MMM d")} - {format(addDays(period.end, -1), "MMM d")}</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                 <CardContent className="space-y-2 text-sm">
+                    <div className="flex justify-between items-center">
+                        <span>Starting Balance</span>
+                        <span className="font-medium">{formatCurrency(startingBalance)}</span>
+                    </div>
                     <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
                         <span>Total Income</span>
                         <span className="font-semibold">{formatCurrency(period.totals.income)}</span>
@@ -103,6 +125,10 @@ export function SidebarContent({ payPeriods, selectedDate }: { payPeriods: PayPe
                      <div className="flex justify-between items-center text-lg font-bold pt-2 border-t">
                         <span>Period Net</span>
                         <span className={cn(period.totals.net < 0 && "text-destructive")}>{formatCurrency(period.totals.net)}</span>
+                    </div>
+                    <div className="flex justify-between items-center font-bold text-lg pt-2 border-t">
+                        <span>End of Period</span>
+                        <span className="font-semibold">{formatCurrency(endBalance)}</span>
                     </div>
                 </CardContent>
             </Card>
@@ -129,6 +155,8 @@ export function CentseiCalendar({
     onBulkDelete,
     onMoveRequest,
     birthdays,
+    activePeriodIndex,
+    initialBalance
 }: CentseiCalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [localSelectedDate, setLocalSelectedDate] = useState(new Date());
@@ -170,10 +198,12 @@ export function CentseiCalendar({
         openDayEntriesDialog(dayHolidays, dayBirthdays);
     }
     
-    if (dayHasContent) {
-        if (isMobile) {
-            if (isLongPress) openDialog();
-        } else {
+    if (isMobile) {
+        if (isLongPress && dayHasContent) {
+            openDialog();
+        }
+    } else { // Desktop
+        if (dayHasContent) {
             openDialog();
         }
     }
@@ -349,10 +379,6 @@ export function CentseiCalendar({
             const isDraggingOver = dragOverDate === dateKey && !!draggedEntry;
             const isSelected = isSameDay(day, localSelectedDate);
 
-            const periodForDay = findPeriodForDate(payPeriods, day);
-            const remainingThisPeriod = periodForDay ? periodForDay.totals.income - spentSoFar(periodForDay, day) : undefined;
-
-
             return (
               <div
                 key={dateKey}
@@ -426,11 +452,6 @@ export function CentseiCalendar({
                     ))}
                   </div>
                 </ScrollArea>
-                 {typeof remainingThisPeriod === "number" && (
-                    <div className="text-xs text-muted-foreground mt-1 truncate">
-                      {formatCurrency(remainingThisPeriod)} left
-                    </div>
-                )}
               </div>
             );
           })}
@@ -439,8 +460,9 @@ export function CentseiCalendar({
       {!isMobile && (
         <aside className="w-1/3 max-w-sm border-l overflow-y-auto hidden lg:block bg-secondary/50">
            <SidebarContent 
-                payPeriods={payPeriods} 
-                selectedDate={localSelectedDate}
+                periods={payPeriods} 
+                activeIndex={activePeriodIndex}
+                initialBalance={initialBalance}
             />
         </aside>
       )}
