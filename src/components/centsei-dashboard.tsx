@@ -55,7 +55,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Entry, RolloverPreference, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
-import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO, startOfDay } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { scheduleNotificationsLocal, cancelAllNotificationsLocal } from "@/lib/notification-manager";
@@ -708,7 +708,6 @@ export default function CentseiDashboard() {
 
             const currentUpdates = masterUpdates.get(masterId) || { exceptions: { ...masterEntry.exceptions } };
             
-            // Set the order for this specific instance date
             currentUpdates.exceptions[entry.date] = { ...currentUpdates.exceptions[entry.date], order: index };
             masterUpdates.set(masterId, currentUpdates);
         });
@@ -720,7 +719,7 @@ export default function CentseiDashboard() {
         await batch.commit();
     } else {
         setEntries(prevEntries => {
-            const masterUpdates: { [key: string]: any } = {};
+            const masterUpdates: { [key: string]: { exceptions: any, isNew?: boolean } } = {};
 
             orderedEntries.forEach((entry, index) => {
                 const masterId = getOriginalIdFromInstance(entry.id);
@@ -728,7 +727,7 @@ export default function CentseiDashboard() {
                     const masterEntry = prevEntries.find(e => e.id === masterId);
                     masterUpdates[masterId] = { exceptions: { ...masterEntry?.exceptions } };
                  }
-                 masterUpdates[masterId].exceptions[entry.date] = { ...masterUpdates[masterId].exceptions[entry.date], order: index };
+                 masterUpdates[masterId].exceptions[entry.date] = { ...(masterUpdates[masterId].exceptions[entry.date] || {}), order: index };
             });
 
             return prevEntries.map(e => {
