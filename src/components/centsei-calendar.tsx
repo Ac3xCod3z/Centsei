@@ -33,7 +33,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { useMedia } from "react-use";
 import { getHolidaysForYear } from "@/lib/holidays";
-import { PayPeriod, findPeriodForDate, spentSoFar } from "@/lib/pay-periods";
+import { PayPeriod, findPeriodForDate } from "@/lib/pay-periods";
 
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -47,7 +47,7 @@ function getOriginalIdFromInstance(key: string) {
 type CentseiCalendarProps = {
     entries: Entry[];
     generatedEntries: Entry[];
-    setEntries: React.Dispatch<React.SetStateAction<Entry[]>>;
+    setEntries: (value: Entry[] | ((val: Entry[]) => Entry[])) => void;
     timezone: string;
     openNewEntryDialog: (date: Date) => void;
     setEditingEntry: (entry: Entry | null) => void;
@@ -157,11 +157,6 @@ function DayCell(props: DayCellProps) {
     onDragStart,
   } = props;
   
-  const period = React.useMemo(
-    () => findPeriodForDate(payPeriods, dayDate),
-    [payPeriods, dayDate]
-  );
-  
   return (
     <div
       onDrop={(e) => onDrop(e, dayDate)}
@@ -171,7 +166,7 @@ function DayCell(props: DayCellProps) {
         !isCurrentMonth && "text-muted-foreground bg-muted/30",
         isToday && "border-primary",
         isSelected && "bg-day-selected/20 border-day-selected",
-        period && !isSelected && "bg-secondary/20"
+        "bg-secondary/20"
       )}
       onClick={onSelect}
     >
@@ -264,7 +259,6 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
   const isMobile = useMedia("(max-width: 768px)", false);
 
   const handleDayInteraction = (day: Date) => {
-    setLocalSelectedDate(day);
     setSelectedDate(day);
 
     if (isReadOnly) return;
@@ -281,6 +275,8 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
     
     if (hasContent) {
       openDayEntriesDialog(dayHolidays, dayBirthdays);
+    } else {
+        openNewEntryDialog(day);
     }
   };
   
@@ -288,7 +284,10 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
     if (!isMobile || isReadOnly) return;
 
     longPressTimerRef.current = setTimeout(() => {
-        handleDayInteraction(day);
+        const dayEntries = generatedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), day));
+         if(dayEntries.length > 0) {
+            handleDayInteraction(day);
+         }
     }, 500); // 500ms for long press
   };
 
