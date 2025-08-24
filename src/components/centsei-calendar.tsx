@@ -19,25 +19,20 @@ import {
   setYear,
   setMonth,
   getMonth,
-  startOfDay,
 } from "date-fns";
-import { ChevronLeft, ChevronRight, Plus, Trash2, TrendingUp, TrendingDown, Repeat, Check, Trophy, ChevronDown, Cake, PartyPopper } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Check, Cake, PartyPopper, AlertCircle } from "lucide-react";
 
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn, formatCurrency, parseDateInTimezone } from "@/lib/utils";
-import type { Entry, WeeklyBalances, SelectedInstance, Birthday, Holiday, BudgetScore, DojoRank, Goal } from "@/lib/types";
-import { Checkbox } from "./ui/checkbox";
+import type { Entry, SelectedInstance, Birthday, Holiday, BudgetScore, DojoRank, Goal } from "@/lib/types";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { useMedia } from "react-use";
 import { getHolidaysForYear } from "@/lib/holidays";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
-import { BudgetScoreWidget } from "./budget-score-widget";
-import { DojoJourneyWidget } from "./dojo-journey-widget";
-import { Separator } from "./ui/separator";
+import { findPeriodForDate, PayPeriod, spentSoFar } from "@/lib/pay-periods";
 
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -59,14 +54,7 @@ type CentseiCalendarProps = {
     setEntryDialogOpen: (isOpen: boolean) => void;
     openDayEntriesDialog: (holidays: Holiday[], birthdays: Birthday[]) => void;
     isReadOnly: boolean;
-    weeklyBalances: WeeklyBalances;
-    weeklyTotals: {
-        income: number;
-        bills: number;
-        net: number;
-        startOfWeekBalance: number;
-        status: number;
-    },
+    payPeriods: PayPeriod[];
     isSelectionMode: boolean;
     toggleSelectionMode: () => void;
     selectedInstances: SelectedInstance[];
@@ -83,36 +71,38 @@ type CentseiCalendarProps = {
 };
 
 
-export function SidebarContent({ weeklyTotals, selectedDate }: { weeklyTotals: CentseiCalendarProps['weeklyTotals'], selectedDate: Date }) {
+export function SidebarContent({ payPeriods, selectedDate }: { payPeriods: PayPeriod[], selectedDate: Date }) {
+    
+    const period = useMemo(() => findPeriodForDate(payPeriods, selectedDate), [payPeriods, selectedDate]);
+
+    if (!period) {
+        return (
+             <div className="p-4 md:p-6 space-y-6 text-center text-muted-foreground">
+                <AlertCircle className="mx-auto h-10 w-10 mb-2" />
+                <p className="font-semibold">No Active Pay Period</p>
+                <p className="text-sm">Add an income entry to start tracking your first pay period.</p>
+            </div>
+        );
+    }
     
     return (
         <div className="p-4 md:p-6 space-y-6">
             <Card>
                 <CardHeader>
-                    <CardTitle>Week of {format(startOfWeek(selectedDate), "MMM d")}</CardTitle>
+                    <CardTitle>Period: {format(period.start, "MMM d")} - {format(period.end, "MMM d")}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">Starting Balance</span>
-                        <span className="font-semibold">{formatCurrency(weeklyTotals.startOfWeekBalance)}</span>
-                    </div>
                     <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
-                        <span><TrendingUp className="inline-block mr-2 h-4 w-4" />Income</span>
-                        <span className="font-semibold">{formatCurrency(weeklyTotals.income)}</span>
+                        <span>Total Income</span>
+                        <span className="font-semibold">{formatCurrency(period.totals.income)}</span>
                     </div>
                     <div className="flex justify-between items-center text-destructive">
-                        <span><TrendingDown className="inline-block mr-2 h-4 w-4" />Bills</span>
-                        <span className="font-semibold">{formatCurrency(weeklyTotals.bills)}</span>
+                        <span>Total Expenses</span>
+                        <span className="font-semibold">{formatCurrency(period.totals.expenses)}</span>
                     </div>
-                    <div className="flex justify-between items-center text-sm text-muted-foreground pt-2 border-t">
-                        <span>Weekly Status</span>
-                        <span className={cn("font-bold", weeklyTotals.status > 0 ? "text-emerald-600" : weeklyTotals.status < 0 ? "text-destructive" : "")}>
-                            {weeklyTotals.status >= 0 ? '+' : ''}{formatCurrency(weeklyTotals.status)}
-                        </span>
-                    </div>
-                    <div className="flex justify-between items-center text-lg font-bold pt-2 border-t">
-                        <span>End of Week</span>
-                        <span>{formatCurrency(weeklyTotals.net)}</span>
+                     <div className="flex justify-between items-center text-lg font-bold pt-2 border-t">
+                        <span>Period Net</span>
+                        <span className={cn(period.totals.net < 0 && "text-destructive")}>{formatCurrency(period.totals.net)}</span>
                     </div>
                 </CardContent>
             </Card>
@@ -131,8 +121,7 @@ export function CentseiCalendar({
     setEntryDialogOpen,
     openDayEntriesDialog,
     isReadOnly,
-    weeklyBalances,
-    weeklyTotals,
+    payPeriods,
     isSelectionMode,
     toggleSelectionMode,
     selectedInstances,
@@ -140,20 +129,17 @@ export function CentseiCalendar({
     onBulkDelete,
     onMoveRequest,
     birthdays,
-    budgetScore,
-    dojoRank,
-    goals,
-    onScoreInfoClick,
-    onScoreHistoryClick,
-    onDojoInfoClick,
 }: CentseiCalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [localSelectedDate, setLocalSelectedDate] = useState(new Date());
   const [years, setYears] = useState<number[]>([]);
   const calendarRef = useRef<HTMLDivElement>(null);
   const isMobile = useMedia("(max-width: 1024px)", false);
 
   const [draggedEntry, setDraggedEntry] = useState<Entry | null>(null);
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+  
+  const longPressTimeout = useRef<NodeJS.Timeout | null>(null);
 
 
   useEffect(() => {
@@ -161,22 +147,51 @@ export function CentseiCalendar({
     setYears(Array.from({ length: 21 }, (_, i) => currentYear - 10 + i));
   }, []);
 
-  const handleDayClick = (day: Date) => {
-    if (isReadOnly) return;
+  const handleDayInteraction = useCallback((day: Date, isLongPress: boolean) => {
+    setLocalSelectedDate(day);
     setSelectedDate(day);
 
-    const dayEntries = generatedEntries.filter(e => isSameDay(parseDateInTimezone(e.date, timezone), day));
-    const dayHolidays = getHolidaysForYear(getYear(day)).filter(h => isSameDay(h.date, day));
-    const dayBirthdays = birthdays.filter(b => {
+    const dayHasContent = 
+      generatedEntries.some(e => isSameDay(parseDateInTimezone(e.date, timezone), day)) ||
+      getHolidaysForYear(getYear(day)).some(h => isSameDay(h.date, day)) ||
+      birthdays.some(b => {
         if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
         const [bMonth, bDay] = b.date.split('-').map(Number);
         return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
-    });
+      });
 
-    if (dayEntries.length > 0 || dayHolidays.length > 0 || dayBirthdays.length > 0) {
+    const openDialog = () => {
+        const dayHolidays = getHolidaysForYear(getYear(day)).filter(h => isSameDay(h.date, day));
+        const dayBirthdays = birthdays.filter(b => {
+             if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
+             const [bMonth, bDay] = b.date.split('-').map(Number);
+             return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
+        });
         openDayEntriesDialog(dayHolidays, dayBirthdays);
-    } else {
-        openNewEntryDialog(day);
+    }
+    
+    if (dayHasContent) {
+        if (isMobile) {
+            if (isLongPress) openDialog();
+        } else {
+            openDialog();
+        }
+    }
+  }, [generatedEntries, birthdays, isMobile, openDayEntriesDialog, setSelectedDate, timezone]);
+
+  const handlePointerDown = (day: Date) => {
+    if (longPressTimeout.current) clearTimeout(longPressTimeout.current);
+    longPressTimeout.current = setTimeout(() => {
+      handleDayInteraction(day, true);
+      longPressTimeout.current = null; 
+    }, 500); // 500ms for long press
+  };
+
+  const handlePointerUp = (day: Date) => {
+    if (longPressTimeout.current) {
+      clearTimeout(longPressTimeout.current);
+      longPressTimeout.current = null;
+      handleDayInteraction(day, false);
     }
   };
   
@@ -188,22 +203,6 @@ export function CentseiCalendar({
     setEditingEntry(instanceWithDate);
     setEntryDialogOpen(true);
   }
-
-  const handleCheckboxChange = (instanceId: string, checked: boolean) => {
-    const masterId = getOriginalIdFromInstance(instanceId);
-    const dateStr = instanceId.substring(masterId.length + 1);
-
-    setEntries(prevEntries => {
-        return prevEntries.map(e => {
-            if (e.id === masterId) {
-                const exceptions = { ...e.exceptions };
-                exceptions[dateStr] = { ...exceptions[dateStr], isPaid: checked };
-                return { ...e, exceptions };
-            }
-            return e;
-        });
-    });
-  };
 
   const handleInstanceSelection = (instance: SelectedInstance, checked: boolean) => {
     setSelectedInstances(prev => 
@@ -329,14 +328,6 @@ export function CentseiCalendar({
           </div>
            {!isReadOnly && !isMobile && (
             <div className="flex items-center gap-2">
-                <Button variant={isSelectionMode ? "destructive" : "outline"} size="sm" onClick={toggleSelectionMode}>
-                    {isSelectionMode ? `Clear (${selectedInstances.length})` : 'Select'}
-                </Button>
-                 {isSelectionMode && (
-                    <Button variant="destructive" size="sm" onClick={onBulkDelete} disabled={selectedInstances.length === 0}>
-                        <Trash2 className="mr-2 h-4 w-4" /> Delete
-                    </Button>
-                 )}
                 <Button size="sm" onClick={() => openNewEntryDialog(currentDate)}>
                    <Plus className="mr-2 h-4 w-4" /> Add
                 </Button>
@@ -356,6 +347,11 @@ export function CentseiCalendar({
             const isCurrentMonthDay = isSameMonth(day, currentDate);
             const isCurrentDay = isToday(day);
             const isDraggingOver = dragOverDate === dateKey && !!draggedEntry;
+            const isSelected = isSameDay(day, localSelectedDate);
+
+            const periodForDay = findPeriodForDate(payPeriods, day);
+            const remainingThisPeriod = periodForDay ? periodForDay.totals.income - spentSoFar(periodForDay, day) : undefined;
+
 
             return (
               <div
@@ -364,9 +360,11 @@ export function CentseiCalendar({
                   "h-32 sm:h-36 md:h-40 lg:h-48 xl:h-56 border rounded-lg p-2 flex flex-col transition-colors duration-200 group relative",
                   !isCurrentMonthDay && "bg-muted text-muted-foreground",
                   isCurrentDay && "border-primary",
+                  isSelected && "bg-primary/10",
                   isDraggingOver && "bg-primary/20 ring-2 ring-primary"
                 )}
-                onClick={() => handleDayClick(day)}
+                onPointerDown={() => handlePointerDown(day)}
+                onPointerUp={() => handlePointerUp(day)}
                 onDragOver={(e) => handleDragOver(e, dateKey)}
                 onDrop={(e) => handleDrop(e, dateKey)}
               >
@@ -400,7 +398,7 @@ export function CentseiCalendar({
                         key={entry.id}
                         className={cn(
                             "px-2 py-1 rounded-md text-xs font-semibold flex items-center justify-between cursor-pointer", 
-                            entry.isPaid ? 'bg-secondary text-muted-foreground line-through' :
+                            entry.isPaid ? 'bg-secondary text-muted-foreground' :
                             entry.type === 'bill' ? 'bg-destructive/10 text-card-foreground' : 'bg-emerald-500/10 text-card-foreground',
                             draggedEntry?.id === entry.id && 'opacity-50'
                         )}
@@ -410,16 +408,8 @@ export function CentseiCalendar({
                         onDragEnd={handleDragEnd}
                       >
                          <div className="flex items-center gap-1.5 truncate">
-                            {isSelectionMode && (
-                                <Checkbox 
-                                    className="mr-1" 
-                                    checked={isInstanceSelected(entry.id)}
-                                    onCheckedChange={(checked) => handleInstanceSelection({instanceId: entry.id, masterId: getOriginalIdFromInstance(entry.id), date: entry.date}, !!checked)}
-                                    onClick={(e) => e.stopPropagation()}
-                                />
-                            )}
                             {entry.isPaid ? (
-                                <Check className="h-3 w-3 mr-1 flex-shrink-0" />
+                                <Check className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                             ) : (
                                 <Image 
                                     src={entry.type === 'bill' ? '/bills.png' : '/income.png'}
@@ -429,13 +419,18 @@ export function CentseiCalendar({
                                     className="mr-1 flex-shrink-0"
                                 />
                             )}
-                            <span className="truncate">{entry.name}</span>
+                            <span className={cn("truncate", entry.isPaid && "line-through")}>{entry.name}</span>
                          </div>
-                        <span>{formatCurrency(entry.amount)}</span>
+                        <span className={cn(entry.isPaid && "line-through")}>{formatCurrency(entry.amount)}</span>
                       </div>
                     ))}
                   </div>
                 </ScrollArea>
+                 {typeof remainingThisPeriod === "number" && (
+                    <div className="text-xs text-muted-foreground mt-1 truncate">
+                      {formatCurrency(remainingThisPeriod)} left
+                    </div>
+                )}
               </div>
             );
           })}
@@ -444,8 +439,8 @@ export function CentseiCalendar({
       {!isMobile && (
         <aside className="w-1/3 max-w-sm border-l overflow-y-auto hidden lg:block bg-secondary/50">
            <SidebarContent 
-                weeklyTotals={weeklyTotals} 
-                selectedDate={currentDate}
+                payPeriods={payPeriods} 
+                selectedDate={localSelectedDate}
             />
         </aside>
       )}

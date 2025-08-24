@@ -1,3 +1,4 @@
+// src/components/centsei-dashboard.tsx
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
@@ -52,7 +53,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { Entry, RolloverPreference, WeeklyBalances, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent } from "@/lib/types";
+import type { Entry, RolloverPreference, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
 import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO, startOfDay } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
@@ -66,7 +67,6 @@ import { BudgetScoreHistoryDialog } from "./budget-score-history-dialog";
 import { getDojoRank } from "@/lib/dojo-journey";
 import { DojoJourneyInfoDialog } from "./dojo-journey-info-dialog";
 import JSConfetti from 'js-confetti';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
 import { getHolidaysForYear } from "@/lib/holidays";
 import { getForecastInsights } from "@/lib/forecast-insights";
 import SenseiSaysUI from "./sensei-says-ui";
@@ -81,6 +81,7 @@ import { SenseiEvaluationDialog } from "./sensei-evaluation-dialog";
 import { DojoJourneyDialog } from "./dojo-journey-dialog";
 import { cn } from "@/lib/utils";
 import { useDraggableFab } from "@/hooks/use-draggable-fab";
+import { buildPayPeriods } from "@/lib/pay-periods";
 
 
 const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezone: string): Entry[] => {
@@ -256,12 +257,12 @@ export default function CentseiDashboard() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [weeklyBalances, setWeeklyBalances] = useState<WeeklyBalances>({});
   
   const [isSelectionMode, setSelectionMode] = useState(false);
   const [selectedInstances, setSelectedInstances] = useState<SelectedInstance[]>([]);
-  const [entryToDelete, setEntryToDelete] = useState<string | null>(null);
+  const [entryToDelete, setEntryToDelete] = useState<{instanceId: string, isSeries: boolean} | null>(null);
   const [moveRequest, setMoveRequest] = useState<{entry: Entry, newDate: string} | null>(null);
+  const [updateRequest, setUpdateRequest] = useState<{entry: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }, isSeries: boolean} | null>(null);
 
 
   const { toast } = useToast();
@@ -335,56 +336,12 @@ export default function CentseiDashboard() {
 
     return entries.flatMap((e) => generateRecurringInstances(e, viewStart, viewEnd, timezone));
   }, [entries, timezone]);
+
+  const payPeriods = useMemo(
+    () => buildPayPeriods(allGeneratedEntries, 1),
+    [allGeneratedEntries]
+  );
   
-  useEffect(() => {
-    if (allGeneratedEntries.length === 0) {
-        setWeeklyBalances({});
-        return;
-    }
-
-    const newWeeklyBalances: WeeklyBalances = {};
-    const sortedEntries = [...allGeneratedEntries].sort((a,b) => a.date.localeCompare(b.date));
-        
-    const firstDate = parseDateInTimezone(sortedEntries[0].date, timezone);
-    const lastDate = parseDateInTimezone(sortedEntries[sortedEntries.length - 1].date, timezone);
-    
-    const weeks = eachWeekOfInterval({ start: firstDate, end: lastDate });
-    let lastWeekBalance = 0;
-    
-    let previousMonth = -1;
-
-    weeks.forEach(weekStart => {
-        const weekEnd = endOfWeek(weekStart);
-        const weekKey = format(weekStart, 'yyyy-MM-dd');
-
-        const entriesForWeek = allGeneratedEntries.filter(e => {
-            const entryDate = parseDateInTimezone(e.date, timezone);
-            return isWithinInterval(entryDate, { start: weekStart, end: weekEnd });
-        });
-        
-        const income = entriesForWeek.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
-        const bills = entriesForWeek.filter(e => e.type === 'bill').reduce((sum, e) => sum + e.amount, 0);
-        
-        if(rolloverPreference === 'reset') {
-            const currentMonth = weekStart.getMonth();
-            if(currentMonth !== previousMonth) {
-                lastWeekBalance = 0;
-            }
-            previousMonth = currentMonth;
-        }
-
-        let currentWeekStartBalance = lastWeekBalance;
-
-        const endOfWeekBalance = currentWeekStartBalance + income - bills;
-        newWeeklyBalances[weekKey] = { start: currentWeekStartBalance, end: endOfWeekBalance };
-        lastWeekBalance = endOfWeekBalance;
-    });
-    
-    if (JSON.stringify(newWeeklyBalances) !== JSON.stringify(weeklyBalances)) {
-        setWeeklyBalances(newWeeklyBalances);
-    }
-  }, [allGeneratedEntries, rolloverPreference, timezone, weeklyBalances]);
-
   const handleNotificationsToggle = (enabled: boolean) => {
     setNotificationsEnabled(enabled);
     if (enabled) {
@@ -410,38 +367,60 @@ export default function CentseiDashboard() {
     }
   };
 
-  const handleSaveEntry = async (entryToSave: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }) => {
+  const handleSaveEntry = async (
+      entryToSave: Omit<Entry, 'id' | 'date'> & { id?: string; date: Date; originalDate?: string },
+      isSeriesUpdate = false
+  ) => {
     const { originalDate, ...data } = entryToSave;
-    const masterId = data.id;
-    const newDateStr = format(data.date, 'yyyy-MM-dd');
-    const oldDateStr = originalDate;
+    const masterId = data.id ? getOriginalIdFromInstance(data.id) : undefined;
+
+    const masterEntry = masterId ? entries.find(e => e.id === masterId) : undefined;
     
-    // This is the data that will be saved to the database.
-    const saveData: any = {
-        ...data,
-        date: newDateStr, // Always save the date as a string
-    };
-    // Ensure date objects are converted to strings if they exist
-    if (saveData.recurrenceEndDate) {
-        saveData.recurrenceEndDate = format(saveData.recurrenceEndDate, 'yyyy-MM-dd');
+    if (masterEntry && masterEntry.recurrence !== 'none' && !isSeriesUpdate && data.id) {
+        setUpdateRequest({ entry: entryToSave, isSeries: false });
+        return;
     }
+    
+    setUpdateRequest(null);
 
-    if (user && firestore) {
-        if (!masterId) { // This is a new entry
-            const collectionRef = collection(firestore, 'users', user.uid, 'calendar_entries');
-            await addDoc(collectionRef, stripUndefined({ ...saveData, date: newDateStr, created_at: serverTimestamp(), updated_at: serverTimestamp() }));
-        } else { // This is an existing entry (master or instance)
-            const masterDocRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
-            const masterDoc = await getDoc(masterDocRef);
-            if (!masterDoc.exists()) return;
+    const saveData: any = { ...data };
+    if (saveData.date) saveData.date = format(saveData.date, 'yyyy-MM-dd');
+    if (saveData.recurrenceEndDate) saveData.recurrenceEndDate = format(saveData.recurrenceEndDate, 'yyyy-MM-dd');
 
-            const masterEntry = { id: masterDoc.id, ...masterDoc.data() } as Entry;
+    const updateSeries = async (id: string, fullEntryData: any) => {
+        const cleanedExceptions: typeof masterEntry.exceptions = {};
+        if (masterEntry?.exceptions) {
+            for (const [date, ex] of Object.entries(masterEntry.exceptions)) {
+                if (ex && !ex.movedTo && !ex.movedFrom) {
+                    cleanedExceptions[date] = ex;
+                }
+            }
+        }
+        
+        const seriesData = {
+          ...fullEntryData,
+          id: undefined, // Don't save ID in the document body
+          exceptions: cleanedExceptions,
+        };
 
-            if (masterEntry.recurrence === 'none') {
-                 await updateDoc(masterDocRef, stripUndefined({ ...saveData, updated_at: serverTimestamp() }));
-            } else {
+        if (user) {
+            await updateDoc(doc(firestore, 'users', user.uid, 'calendar_entries', id), stripUndefined({ ...seriesData, updated_at: serverTimestamp() }));
+        } else {
+            setEntries(prev => prev.map(e => (e.id === id ? { ...seriesData, id } : e)));
+        }
+    };
+    
+    if (masterId && masterEntry) {
+        if (isSeriesUpdate) {
+            await updateSeries(masterId, saveData);
+        } else { // Single instance update
+             if (masterEntry.recurrence === 'none') {
+                 // It's a non-recurring entry, just update the master
+                 await updateSeries(masterId, saveData);
+             } else {
+                 // It's a recurring entry, create an exception
                 const exceptions = { ...masterEntry.exceptions };
-                const instanceDate = oldDateStr || newDateStr;
+                const instanceDate = originalDate || saveData.date;
                 
                 const exceptionData = {
                   name: data.name === masterEntry.name ? undefined : data.name,
@@ -451,49 +430,29 @@ export default function CentseiDashboard() {
                   category: data.category === masterEntry.category ? undefined : data.category,
                 };
                 
-                // Income entries do not have a category
-                if(data.type === 'income') {
-                    delete (exceptionData as any).category;
-                }
+                if(data.type === 'income') delete (exceptionData as any).category;
 
                 exceptions[instanceDate] = { ...exceptions[instanceDate], ...stripUndefined(exceptionData) };
                 
-                if (oldDateStr && oldDateStr !== newDateStr) {
-                    exceptions[oldDateStr] = { ...exceptions[oldDateStr], movedTo: newDateStr };
-                    exceptions[newDateStr] = { ...exceptions[newDateStr], ...stripUndefined(exceptionData), movedFrom: oldDateStr };
+                if(originalDate && originalDate !== saveData.date) {
+                    exceptions[originalDate] = { ...exceptions[originalDate], movedTo: saveData.date };
+                    exceptions[saveData.date] = { ...exceptions[saveData.date], ...stripUndefined(exceptionData), movedFrom: originalDate };
                 }
-
-                await updateDoc(masterDocRef, { exceptions: stripUndefined(exceptions), updated_at: serverTimestamp() });
+                
+                if (user) {
+                    await updateDoc(doc(firestore, 'users', user.uid, 'calendar_entries', masterId), { exceptions: stripUndefined(exceptions), updated_at: serverTimestamp() });
+                } else {
+                    setEntries(prev => prev.map(e => e.id === masterId ? { ...e, exceptions: stripUndefined(exceptions) } : e));
+                }
             }
         }
-    } else {
-         setEntries(prevEntries => {
-            if (!masterId) {
-                return [...prevEntries, { ...saveData, id: crypto.randomUUID() }];
-            }
-
-            const masterEntry = prevEntries.find(e => e.id === masterId);
-            if (!masterEntry) return prevEntries;
-
-            if (masterEntry.recurrence === 'none') {
-                return prevEntries.map(e => e.id === masterId ? { ...e, ...saveData } : e);
-            }
-            
-            const exceptions = { ...masterEntry.exceptions };
-            const instanceDate = oldDateStr || newDateStr;
-            const exceptionData: Partial<Entry> = { name: data.name, amount: data.amount, isPaid: data.isPaid };
-            if (data.type === 'bill') {
-                exceptionData.category = data.category;
-            }
-            exceptions[instanceDate] = { ...exceptions[instanceDate], ...stripUndefined(exceptionData) };
-            
-            if(oldDateStr && oldDateStr !== newDateStr) {
-                exceptions[oldDateStr] = { ...exceptions[oldDateStr], movedTo: newDateStr };
-                exceptions[newDateStr] = { ...exceptions[newDateStr], ...stripUndefined(exceptionData), movedFrom: oldDateStr };
-            }
-            
-            return prevEntries.map(e => e.id === masterId ? { ...e, exceptions: stripUndefined(exceptions) } : e);
-        });
+    } else { // New entry
+        const newEntryData = { ...saveData, created_at: serverTimestamp(), updated_at: serverTimestamp() };
+        if (user) {
+            await addDoc(collection(firestore, 'users', user.uid, 'calendar_entries'), stripUndefined(newEntryData));
+        } else {
+            setEntries(prev => [...prev, { ...newEntryData, id: crypto.randomUUID() }]);
+        }
     }
 
     if(notificationsEnabled) scheduleNotificationsLocal(entries, timezone, toast);
@@ -508,25 +467,44 @@ export default function CentseiDashboard() {
     setEntryDialogOpen(true);
   }
 
-  const handleDeleteEntry = async (instanceId: string) => {
+  const handleDeleteConfirmation = (instanceId: string) => {
+    const masterId = getOriginalIdFromInstance(instanceId);
+    const masterEntry = entries.find(e => e.id === masterId);
+
+    if (masterEntry && masterEntry.recurrence !== 'none') {
+        setEntryToDelete({ instanceId, isSeries: false });
+    } else {
+        handleDeleteEntry(instanceId, false); // It's a single entry, delete directly
+    }
+  }
+
+  const handleDeleteEntry = async (instanceId: string, isSeriesDelete: boolean) => {
     const masterId = getOriginalIdFromInstance(instanceId);
     
     if (user && firestore) {
         const masterDocRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
-        const masterDoc = await getDoc(masterDocRef);
-        if (!masterDoc.exists()) return;
-        const masterEntry = masterDoc.data() as Entry;
-
-        if (masterEntry.recurrence === 'none') {
+        if (isSeriesDelete) {
             await deleteDoc(masterDocRef);
         } else {
-            const instanceDate = instanceId.substring(masterId.length + 1);
-            const exceptions = { ...masterEntry.exceptions };
-            exceptions[instanceDate] = { ...exceptions[instanceDate], movedFrom: "deleted" };
-            await updateDoc(masterDocRef, { exceptions });
+            const masterDoc = await getDoc(masterDocRef);
+            if (!masterDoc.exists()) return;
+            const masterEntry = masterDoc.data() as Entry;
+
+            if (masterEntry.recurrence === 'none') {
+                await deleteDoc(masterDocRef);
+            } else {
+                const instanceDate = instanceId.substring(masterId.length + 1);
+                const exceptions = { ...masterEntry.exceptions };
+                exceptions[instanceDate] = { ...exceptions[instanceDate], movedFrom: "deleted" };
+                await updateDoc(masterDocRef, { exceptions });
+            }
         }
     } else {
        setEntries(prevEntries => {
+            if (isSeriesDelete) {
+                return prevEntries.filter(e => e.id !== masterId);
+            }
+            
             const masterEntry = prevEntries.find(e => e.id === masterId);
             if (!masterEntry) return prevEntries;
 
@@ -787,30 +765,6 @@ export default function CentseiDashboard() {
     setDayEntriesDialogOpen(false);
     openNewEntryDialog(selectedDate);
   }
-
-  const weeklyTotals = useMemo(() => {
-    const weekStart = startOfWeek(selectedDate);
-    const weekKey = format(weekStart, 'yyyy-MM-dd');
-    
-    const weekBalanceInfo = weeklyBalances[weekKey];
-    const startOfWeekBalance = weekBalanceInfo ? weekBalanceInfo.start : 0;
-
-    const weekEntries = allGeneratedEntries.filter(e => {
-        const entryDate = parseDateInTimezone(e.date, timezone);
-        return isWithinInterval(entryDate, {start: weekStart, end: endOfWeek(weekStart)});
-    });
-
-    const weeklyIncome = weekEntries.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
-    const weeklyBills = weekEntries.filter(e => e.type === 'bill').reduce((sum, e) => sum + e.amount, 0);
-
-    return {
-        income: weeklyIncome,
-        bills: weeklyBills,
-        net: startOfWeekBalance + weeklyIncome - weeklyBills,
-        startOfWeekBalance: startOfWeekBalance,
-        status: weeklyIncome - weeklyBills,
-    };
-  }, [allGeneratedEntries, selectedDate, weeklyBalances, timezone]);
   
   const budgetScore = useMemo(() => {
       if (allGeneratedEntries.length === 0) return null;
@@ -933,11 +887,11 @@ export default function CentseiDashboard() {
                     </SheetTrigger>
                     <SheetContent side="left" className="p-0 flex flex-col w-3/4">
                       <SheetHeader className="p-4 border-b">
-                        <SheetTitle>Week of {format(startOfWeek(selectedDate), "MMM d")}</SheetTitle>
+                        <SheetTitle>Pay Period</SheetTitle>
                       </SheetHeader>
                       <ScrollArea className="flex-1">
                         <SidebarContent
-                          weeklyTotals={weeklyTotals}
+                          payPeriods={payPeriods}
                           selectedDate={selectedDate}
                         />
                       </ScrollArea>
@@ -1003,8 +957,7 @@ export default function CentseiDashboard() {
           setEntryDialogOpen={setEntryDialogOpen}
           openDayEntriesDialog={openDayEntriesDialog}
           isReadOnly={false}
-          weeklyBalances={weeklyBalances}
-          weeklyTotals={weeklyTotals}
+          payPeriods={payPeriods}
           isSelectionMode={isSelectionMode}
           toggleSelectionMode={() => setSelectionMode(!isSelectionMode)}
           selectedInstances={selectedInstances}
@@ -1036,7 +989,7 @@ export default function CentseiDashboard() {
         onClose={() => setEntryDialogOpen(false)}
         onSave={handleSaveEntry}
         onCopy={handleCopyEntry}
-        onDelete={handleDeleteEntry}
+        onDelete={handleDeleteConfirmation}
         entry={editingEntry}
         selectedDate={selectedDate}
         timezone={timezone}
@@ -1082,10 +1035,7 @@ export default function CentseiDashboard() {
        <MonthlySummaryDialog
         isOpen={isMonthlySummaryOpen}
         onClose={() => setMonthlySummaryOpen(false)}
-        allEntries={allGeneratedEntries}
-        initialMonth={currentMonth}
-        weeklyBalances={weeklyBalances}
-        timezone={timezone}
+        periods={payPeriods}
        />
        <CalculatorDialog
          isOpen={isCalculatorOpen}
@@ -1130,17 +1080,22 @@ export default function CentseiDashboard() {
             onInfoClick={() => setDojoInfoOpen(true)}
         />
 
-       <AlertDialog open={!!entryToDelete} onOpenChange={() => setEntryToDelete(null)}>
+      <AlertDialog open={!!entryToDelete} onOpenChange={() => setEntryToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this entry?</AlertDialogTitle>
+            <AlertDialogTitle>Delete Recurring Entry</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete this specific entry. Are you sure?
+              Do you want to delete only this occurrence or the entire series?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => entryToDelete && handleDeleteEntry(entryToDelete)}>Delete</AlertDialogAction>
+             <Button variant="secondary" onClick={() => entryToDelete && handleDeleteEntry(entryToDelete.instanceId, false)}>
+                Just This One
+            </Button>
+            <AlertDialogAction onClick={() => entryToDelete && handleDeleteEntry(entryToDelete.instanceId, true)}>
+                Delete Series
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -1150,30 +1105,50 @@ export default function CentseiDashboard() {
             <AlertDialogHeader>
                 <AlertDialogTitle>Move Recurring Entry</AlertDialogTitle>
                 <AlertDialogDescription>
-                    You are moving a recurring entry. How would you like to apply this change?
+                    Apply this move to just this occurrence, or the entire series?
                 </AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="space-y-3 py-4">
+            <div className="grid grid-cols-2 gap-4 py-4">
                <Button className="w-full" onClick={() => moveRequest && handleMoveEntry(moveRequest.entry, moveRequest.newDate, false)}>
-                    Move This Occurrence Only
-                    <p className="font-normal text-xs text-primary-foreground/80">The rest of the series will not be affected.</p>
+                    Just this one
                </Button>
                <Button className="w-full" variant="secondary" onClick={() => moveRequest && handleMoveEntry(moveRequest.entry, moveRequest.newDate, true)}>
-                   Move This and All Future Occurrences
-                   <p className="font-normal text-xs text-secondary-foreground/80">This will change the recurring date for the entire series.</p>
+                   This and future
                 </Button>
             </div>
-             <AlertDialogFooter>
+             <AlertDialogFooter className="!justify-center">
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
             </AlertDialogFooter>
           </AlertDialogContent>
+      </AlertDialog>
+      
+      <AlertDialog open={!!updateRequest} onOpenChange={() => setUpdateRequest(null)}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle>Update Recurring Entry</AlertDialogTitle>
+                <AlertDialogDescription>
+                   Apply changes to this occurrence only, or update the entire series?
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="grid grid-cols-2 gap-4 py-4">
+                <Button className="w-full" onClick={() => updateRequest && handleSaveEntry(updateRequest.entry, false)}>
+                    Just this one
+                </Button>
+                <Button className="w-full" variant="secondary" onClick={() => updateRequest && handleSaveEntry(updateRequest.entry, true)}>
+                    This and future
+                </Button>
+            </div>
+            <AlertDialogFooter className="!justify-center">
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+            </AlertDialogFooter>
+        </AlertDialogContent>
       </AlertDialog>
       
       <SenseiSaysUI 
         sensei={senseiSays}
         budgetScore={budgetScore}
         dojoRank={dojoRank}
-        weeklyTotals={weeklyTotals}
+        weeklyTotals={{income: 0, bills: 0, net: 0}}
         seasonalEvents={seasonalEvents}
         goals={goals}
       />

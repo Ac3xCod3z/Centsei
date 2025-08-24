@@ -127,17 +127,6 @@ export type SelectedInstance = {
 
 export type RolloverPreference = 'carryover' | 'reset';
 
-export type MonthlyLeftovers = {
-  [key: string]: number; // e.g., '2024-07': 250.75
-};
-
-export type WeeklyBalances = {
-  [key: string]: {
-    start: number;
-    end: number;
-  }
-}
-
 export type BudgetScore = {
     score: number;
     date: string; // YYYY-MM-DD
