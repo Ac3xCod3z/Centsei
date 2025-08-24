@@ -86,6 +86,8 @@ type DayCellProps = {
   selectedInstances: SelectedInstance[];
   onDrop: (e: React.DragEvent<HTMLDivElement>, day: Date) => void;
   onDragStart: (e: React.DragEvent<HTMLDivElement>, entry: Entry) => void;
+  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => void;
 };
 
 
@@ -155,12 +157,17 @@ function DayCell(props: DayCellProps) {
     selectedInstances,
     onDrop,
     onDragStart,
+    onPointerDown,
+    onPointerUp,
   } = props;
   
   return (
     <div
       onDrop={(e) => onDrop(e, dayDate)}
       onDragOver={(e) => e.preventDefault()}
+      onClick={onSelect}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
       className={cn(
         "relative flex h-full min-h-[120px] flex-col rounded-lg border p-2 transition-colors",
         !isCurrentMonth && "text-muted-foreground bg-muted/30",
@@ -168,7 +175,6 @@ function DayCell(props: DayCellProps) {
         isSelected && "bg-day-selected/20 border-day-selected",
         "bg-secondary/20"
       )}
-      onClick={onSelect}
     >
       <div className={cn("mb-1 text-right text-sm", isToday ? "font-bold text-primary" : "")}>
         {format(dayDate, "d")}
@@ -274,8 +280,13 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
 
     const hasContent = dayEntries.length > 0 || dayHolidays.length > 0 || dayBirthdays.length > 0;
     
-    // On Desktop: click opens day dialog. On Mobile: long-press opens day dialog.
-    if ((!isMobile && hasContent) || (isMobile && isLongPress && hasContent)) {
+    // On Desktop: click on content opens day dialog.
+    if (!isMobile && hasContent) {
+      openDayEntriesDialog(dayHolidays, dayBirthdays);
+    }
+    
+    // On Mobile: long-press on content opens day dialog.
+    if (isMobile && isLongPress && hasContent) {
       openDayEntriesDialog(dayHolidays, dayBirthdays);
     }
   };
@@ -288,12 +299,11 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
     }, 500); // 500ms for long press
   };
 
-  const handlePointerUp = (day: Date) => {
+  const handlePointerUp = () => {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
     }
-    setLocalSelectedDate(day);
-    setSelectedDate(day);
   };
   
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, entry: Entry) => {
@@ -376,9 +386,11 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
                 isCurrentMonth={isSameMonth(day, currentMonthDate)}
                 isToday={isToday(day)}
                 isSelected={isSameDay(day, localSelectedDate)}
-                onSelect={() => isMobile ? handlePointerUp(day) : handleDayInteraction(day)}
+                onSelect={() => handleDayInteraction(day)}
                 onDrop={handleDrop}
                 onDragStart={handleDragStart}
+                onPointerDown={() => handlePointerDown(day)}
+                onPointerUp={handlePointerUp}
                 payPeriods={payPeriods}
                 isSelectionMode={isSelectionMode}
                 toggleSelection={(instanceId, masterId) => {
