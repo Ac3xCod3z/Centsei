@@ -96,6 +96,7 @@ This is the central part of the application.
 *   **`tailwind.config.ts`**: The configuration file for Tailwind CSS, where custom fonts (`Inter`) and theme extensions are defined.
 *   **`src/components/ui/`**: This directory holds all the base ShadCN components (Button, Card, etc.).
 *   **Icons**: The `lucide-react` library is used for most icons to ensure a consistent, clean aesthetic.
+*   **Calendar Day Highlighting**: When a user clicks on an empty day in the calendar, that day is highlighted with a semi-transparent version of the primary theme color (`--day-selected`). This provides clear visual feedback of the currently selected date for adding new entries via the global "Add Entry" button.
 *   **Calendar Entry Styling**:
     *   Unpaid bill entries have a reddish background.
     *   Unpaid income entries have a greenish background.
