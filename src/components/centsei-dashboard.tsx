@@ -55,7 +55,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Entry, RolloverPreference, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
-import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO, startOfDay } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { scheduleNotificationsLocal, cancelAllNotificationsLocal } from "@/lib/notification-manager";
@@ -696,7 +696,7 @@ export default function CentseiDashboard() {
     }
   }
 
-  const handleReorder = async (orderedEntries: Entry[]) => {
+  const handleReorder = (orderedEntries: Entry[]) => {
     if (user) {
         const batch = writeBatch(firestore);
         const masterUpdates = new Map<string, any>();
@@ -716,27 +716,26 @@ export default function CentseiDashboard() {
             const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', id);
             batch.update(docRef, { exceptions: stripUndefined(updates.exceptions) });
         }
-        await batch.commit();
+        batch.commit();
     } else {
-        setEntries(prevEntries => {
-            const masterUpdates: { [key: string]: { exceptions: any, isNew?: boolean } } = {};
+      const masterUpdates: { [key: string]: { exceptions: any, isNew?: boolean } } = {};
 
-            orderedEntries.forEach((entry, index) => {
-                const masterId = getOriginalIdFromInstance(entry.id);
-                 if (!masterUpdates[masterId]) {
-                    const masterEntry = prevEntries.find(e => e.id === masterId);
-                    masterUpdates[masterId] = { exceptions: { ...masterEntry?.exceptions } };
-                 }
-                 masterUpdates[masterId].exceptions[entry.date] = { ...(masterUpdates[masterId].exceptions[entry.date] || {}), order: index };
-            });
-
-            return prevEntries.map(e => {
-                if (masterUpdates[e.id]) {
-                    return { ...e, exceptions: masterUpdates[e.id].exceptions };
-                }
-                return e;
-            });
-        });
+      orderedEntries.forEach((entry, index) => {
+          const masterId = getOriginalIdFromInstance(entry.id);
+          if (!masterUpdates[masterId]) {
+              const masterEntry = entries.find(e => e.id === masterId);
+              masterUpdates[masterId] = { exceptions: { ...masterEntry?.exceptions } };
+          }
+          masterUpdates[masterId].exceptions[entry.date] = { ...(masterUpdates[masterId].exceptions[entry.date] || {}), order: index };
+      });
+      
+      const newEntries = entries.map(e => {
+          if (masterUpdates[e.id]) {
+              return { ...e, exceptions: masterUpdates[e.id].exceptions };
+          }
+          return e;
+      });
+      setEntries(newEntries);
     }
 
     toast({ title: 'Order Saved', description: 'Your new entry order has been saved.' });
