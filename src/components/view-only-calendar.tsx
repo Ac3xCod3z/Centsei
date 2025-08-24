@@ -7,7 +7,11 @@ import { useSearchParams } from "next/navigation";
 import { useMedia } from "react-use";
 import Image from 'next/image';
 
+
 import type { Entry, RolloverPreference, Birthday, Holiday, BillCategory } from "@/lib/types";
+
+import type { Entry, RolloverPreference, WeeklyBalances, Birthday, Holiday, MasterEntry } from "@/lib/types";
+
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -17,11 +21,15 @@ import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShieldAlert } from "lucide-react";
+
 import { parseDateInTimezone } from "@/lib/utils";
 import { buildPayPeriods, PayPeriod, findPeriodForDate, spentSoFar } from "@/lib/pay-periods";
 
+import { parseDateInTimezone } from "@/lib/time";
+
+
 type SharedData = {
-  entries: Entry[];
+  entries: MasterEntry[];
   rolloverPreference: RolloverPreference;
   timezone: string;
   goals: [],
@@ -29,13 +37,13 @@ type SharedData = {
   initialBalance: number,
 };
 
-const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezone: string): Entry[] => {
+const generateRecurringInstances = (entry: MasterEntry, start: Date, end: Date, timezone: string): Entry[] => {
   if (!entry.date) return [];
 
   const instanceMap = new Map<string, Entry>();
   
-  const anchorDate = startOfDay(parseDateInTimezone(entry.date, timezone));
-  const floorDate = max([anchorDate, startOfDay(start)]);
+  const anchorDate = parseDateInTimezone(entry.date, timezone);
+  const floorDate = start; // Simplified: start of the viewing window
   
   const recurrenceEndDate = entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null;
 
@@ -43,18 +51,22 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
     const dateStr = format(date, 'yyyy-MM-dd');
     const exception = entry.exceptions?.[dateStr];
 
-    const today = startOfDay(new Date());
-    const instanceDate = startOfDay(date);
+    const today = parseDateInTimezone(new Date(), timezone);
+    const instanceDate = date; // Already a zoned date object
     const isPastOrToday = !isAfter(instanceDate, today);
 
     let isPaid = false;
-    if (exception && typeof exception.isPaid === 'boolean') {
+    if (exception?.isPaid !== undefined) {
       isPaid = exception.isPaid;
     } else if (entry.recurrence === 'none') {
       isPaid = entry.isPaid ?? false;
     } else {
-        const isAuto = entry.isAutoPay;
-        isPaid = !!(isAuto && isPastOrToday);
+      const isAuto = entry.isAutoPay;
+      if (isAuto) {
+        isPaid = isPastOrToday;
+      } else {
+        isPaid = false;
+      }
     }
 
     return {
@@ -71,7 +83,7 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
   };
   
   if (entry.recurrence === 'none') {
-    if (isWithinInterval(anchorDate, { start, end })) {
+    if (isWithinInterval(anchorDate, { start: floorDate, end })) {
       const instance = createInstance(anchorDate);
       instanceMap.set(entry.date, instance);
     }
@@ -100,7 +112,7 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
       if (recurrenceEndDate && isAfter(currentDate, recurrenceEndDate)) break;
       if (entry.recurrenceCount && occurrenceCount >= entry.recurrenceCount) break;
 
-      if (isWithinInterval(currentDate, { start, end })) {
+      if (isWithinInterval(currentDate, { start: floorDate, end })) {
         const dateStr = format(currentDate, 'yyyy-MM-dd');
         const instance = createInstance(currentDate);
         instanceMap.set(dateStr, instance);
@@ -260,9 +272,14 @@ export default function ViewOnlyCalendar() {
               </SheetHeader>
               <ScrollArea className="flex-1">
                   <SidebarContent
+
                     periods={payPeriods}
                     activeIndex={activePeriodIndex}
                     initialBalance={initialBalance}
+
+                    weeklyTotals={weeklyTotals}
+                    selectedDate={selectedDate}
+
                   />
               </ScrollArea>
             </SheetContent>
@@ -273,7 +290,6 @@ export default function ViewOnlyCalendar() {
       <CentseiCalendar
         entries={data.entries}
         generatedEntries={allGeneratedEntries}
-        setEntries={() => {}} // No-op
         timezone={data.timezone}
         openNewEntryDialog={() => {}} // No-op
         setEditingEntry={() => {}} // No-op
@@ -295,8 +311,12 @@ export default function ViewOnlyCalendar() {
         onScoreInfoClick={() => {}}
         onScoreHistoryClick={() => {}}
         onDojoInfoClick={() => {}}
+
         activePeriodIndex={activePeriodIndex}
         initialBalance={initialBalance}
+
+        onInstancePaidToggle={() => {}}
+
       />
     </div>
   );

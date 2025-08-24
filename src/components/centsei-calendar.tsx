@@ -19,7 +19,10 @@ import {
   setYear,
   setMonth,
   getMonth,
+
   addDays,
+
+
 } from "date-fns";
 import { ChevronLeft, ChevronRight, Plus, Check, Cake, PartyPopper, AlertCircle } from "lucide-react";
 
@@ -27,16 +30,35 @@ import { ChevronLeft, ChevronRight, Plus, Check, Cake, PartyPopper, AlertCircle 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+
 import { cn, formatCurrency, parseDateInTimezone } from "@/lib/utils";
 import type { Entry, SelectedInstance, Birthday, Holiday, BudgetScore, DojoRank, Goal } from "@/lib/types";
+
+import { cn, formatCurrency } from "@/lib/utils";
+import type { Entry, WeeklyBalances, SelectedInstance, Birthday, Holiday, BudgetScore, DojoRank, Goal, MasterEntry } from "@/lib/types";
+import { Checkbox } from "./ui/checkbox";
+
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { useMedia } from "react-use";
 import { getHolidaysForYear } from "@/lib/holidays";
+
 import { PayPeriod, findPeriodForDate } from "@/lib/pay-periods";
 
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import { BudgetScoreWidget } from "./budget-score-widget";
+import { DojoJourneyWidget } from "./dojo-journey-widget";
+import { Separator } from "./ui/separator";
+import { parseDateInTimezone } from "@/lib/time";
+
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const HOLD_DURATION_MS = 500; // 500ms for press-and-hold
+
 
 function getOriginalIdFromInstance(key: string) {
   const m = key.match(/^(.*)-(\d{4})-(\d{2})-(\d{2})$/);
@@ -44,13 +66,13 @@ function getOriginalIdFromInstance(key: string) {
 }
 
 type CentseiCalendarProps = {
-    entries: Entry[];
+    entries: MasterEntry[];
     generatedEntries: Entry[];
-    setEntries: (value: Entry[] | ((val: Entry[]) => Entry[])) => void;
     timezone: string;
     openNewEntryDialog: (date: Date) => void;
     setEditingEntry: (entry: Entry | null) => void;
-    setSelectedDate: (date: Date) => void;
+    selectedDate: Date | null;
+    setSelectedDate: (date: Date | null) => void;
     setEntryDialogOpen: (isOpen: boolean) => void;
     openDayEntriesDialog: (holidays: Holiday[], birthdays: Birthday[]) => void;
     isReadOnly: boolean;
@@ -68,8 +90,12 @@ type CentseiCalendarProps = {
     onScoreInfoClick: () => void;
     onScoreHistoryClick: () => void;
     onDojoInfoClick: () => void;
+
     activePeriodIndex: number;
     initialBalance: number;
+
+    onInstancePaidToggle: (instanceId: string, isPaid: boolean) => void;
+
 };
 
 type DayCellProps = {
@@ -100,12 +126,16 @@ export function SidebarContent({ periods, activeIndex, initialBalance }: { perio
         )
     }
 
+
     const period = periods[activeIndex];
     
     // Calculate starting balance for the active period
     const startingBalance = periods.slice(0, activeIndex).reduce((acc, p) => acc + p.totals.net, initialBalance);
     const endBalance = startingBalance + period.totals.net;
     
+
+export function SidebarContent({ weeklyTotals, selectedDate }: { weeklyTotals: CentseiCalendarProps['weeklyTotals'], selectedDate: Date }) {
+
     return (
         <div className="p-4 md:p-6 space-y-4">
             <Card>
@@ -231,6 +261,7 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
     timezone,
     openNewEntryDialog,
     setEditingEntry,
+    selectedDate,
     setSelectedDate,
     setEntryDialogOpen,
     openDayEntriesDialog,
@@ -249,6 +280,7 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
     onScoreInfoClick,
     onScoreHistoryClick,
     onDojoInfoClick,
+
     setEntries,
     activePeriodIndex,
     initialBalance,
@@ -268,14 +300,39 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
     if (isReadOnly) return;
     
     const dayEntries = generatedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), day));
+
+    onInstancePaidToggle,
+}: CentseiCalendarProps) {
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [years, setYears] = useState<number[]>([]);
+  const calendarRef = useRef<HTMLDivElement>(null);
+  const isMobile = useMedia("(max-width: 1024px)", false);
+
+  const [draggedEntry, setDraggedEntry] = useState<Entry | null>(null);
+  const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+  const holdTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
+
+
+  useEffect(() => {
+    const currentYear = getYear(new Date());
+    setYears(Array.from({ length: 21 }, (_, i) => currentYear - 10 + i));
+  }, []);
+
+  const handleDayInteraction = useCallback((day: Date) => {
+    if (isReadOnly) return;
+    
+    const dayEntries = generatedEntries.filter(e => isSameDay(parseDateInTimezone(e.date, timezone), day));
+
     const dayHolidays = getHolidaysForYear(getYear(day)).filter(h => isSameDay(h.date, day));
     const dayBirthdays = birthdays.filter(b => {
-        if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
-        const [bMonth, bDay] = b.date.split('-').map(Number);
-        return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
+      if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
+      const [bMonth, bDay] = b.date.split('-').map(Number);
+      return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
     });
 
     const hasContent = dayEntries.length > 0 || dayHolidays.length > 0 || dayBirthdays.length > 0;
+
     
     // On Desktop: click on content opens day dialog.
     if (!isMobile && hasContent) {
@@ -285,9 +342,40 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
     // On Mobile: long-press on content opens day dialog.
     if (isMobile && isLongPress && hasContent) {
       openDayEntriesDialog(dayHolidays, dayBirthdays);
+
+
+    if (hasContent) {
+      openDayEntriesDialog(dayHolidays, dayBirthdays);
     }
-  };
+  }, [isReadOnly, generatedEntries, birthdays, timezone, openDayEntriesDialog]);
+
+
+  const handlePointerDown = useCallback((e: React.PointerEvent, day: Date) => {
+    if (isReadOnly) return;
+    setSelectedDate(day);
+    pointerDownRef.current = { x: e.clientX, y: e.clientY };
+
+    // For both mobile and desktop, a long-press will open the dialog if there's content.
+    holdTimeoutRef.current = setTimeout(() => {
+        handleDayInteraction(day);
+        holdTimeoutRef.current = null;
+        pointerDownRef.current = null;
+    }, HOLD_DURATION_MS);
+  }, [isReadOnly, setSelectedDate, handleDayInteraction]);
+
+  const handlePointerUp = useCallback((day: Date) => {
+    if (holdTimeoutRef.current) {
+      clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+    }
+    // On desktop (not mobile), a simple click should trigger the dialog immediately if content exists.
+    if (!isMobile) {
+        handleDayInteraction(day);
+
+    }
+  }, [isMobile, handleDayInteraction]);
   
+
    const handlePointerDown = (day: Date) => {
     if (!isMobile || isReadOnly) return;
 
@@ -320,6 +408,68 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
       }
       setDraggingEntry(null);
   };
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!pointerDownRef.current || !holdTimeoutRef.current) return;
+    
+    const dx = Math.abs(e.clientX - pointerDownRef.current.x);
+    const dy = Math.abs(e.clientY - pointerDownRef.current.y);
+    
+    // If the pointer moves more than a few pixels, it's a scroll, not a long press.
+    if (dx > 5 || dy > 5) {
+      clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+      pointerDownRef.current = null;
+    }
+  }, []);
+  
+  const handleEditClick = useCallback((entry: Entry) => {
+    if(isReadOnly) return;
+    // We pass the full instance data, which includes any overrides.
+    setEditingEntry(entry);
+    setEntryDialogOpen(true);
+  }, [isReadOnly, setEditingEntry, setEntryDialogOpen]);
+
+  const onSelectInstances = useCallback((instance: SelectedInstance, checked: boolean) => {
+    setSelectedInstances(prev => 
+        checked 
+            ? [...prev, instance] 
+            : prev.filter(i => i.instanceId !== instance.instanceId)
+    );
+  }, [setSelectedInstances]);
+
+  const isInstanceSelected = useCallback((instanceId: string) => {
+    return selectedInstances.some(i => i.instanceId === instanceId);
+  }, [selectedInstances]);
+  
+  const handleDragStart = useCallback((entry: Entry) => {
+      if(isReadOnly) return;
+      setDraggedEntry(entry);
+  }, [isReadOnly]);
+  
+  const handleDragEnd = useCallback(() => {
+      setDraggedEntry(null);
+      setDragOverDate(null);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>, date: string) => {
+    e.preventDefault();
+    if(draggedEntry) {
+        setDragOverDate(date);
+    }
+  }, [draggedEntry]);
+
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>, date: string) => {
+    e.preventDefault();
+    if(draggedEntry && onMoveRequest) {
+        onMoveRequest(draggedEntry, date);
+    }
+    handleDragEnd();
+  }, [draggedEntry, onMoveRequest, handleDragEnd]);
+
+
+  const days = useMemo(() => eachDayOfInterval({ start: startOfWeek(startOfMonth(currentDate)), end: endOfWeek(endOfMonth(currentDate)) }), [currentDate]);
+
   
   const days = useMemo(() => {
     const start = startOfWeek(startOfMonth(currentMonthDate));
@@ -374,6 +524,7 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
         </div>
         <div className="grid grid-cols-7 grid-rows-5 gap-1 flex-1">
           {days.map((day) => {
+
             const dayEntries = generatedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), day));
             return (
               <DayCell
@@ -400,15 +551,129 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
                 }}
                 selectedInstances={selectedInstances}
               />
+
+            const dateKey = format(day, 'yyyy-MM-dd');
+            const dayEntries = entriesByDate.get(dateKey) || [];
+            const dayHolidays = holidaysByDate.get(dateKey) || [];
+            const dayBirthdays = birthdaysByDate.get(format(day, 'MM-dd')) || [];
+            
+            const isCurrentMonthDay = isSameMonth(day, currentDate);
+            const isCurrentDay = isToday(day);
+            const isSelectedDay = selectedDate ? isSameDay(day, selectedDate) : false;
+            const isDraggingOver = dragOverDate === dateKey && !!draggedEntry;
+
+            return (
+              <div
+                key={dateKey}
+                className={cn(
+                  "h-32 sm:h-36 md:h-40 lg:h-48 xl:h-56 border rounded-lg p-2 flex flex-col transition-colors duration-200 group relative",
+                  !isCurrentMonthDay && "bg-muted/50 text-muted-foreground",
+                  isSelectedDay && "bg-primary/10 border-primary/50",
+                  isCurrentDay && !isSelectedDay && "border-primary",
+                  isDraggingOver && "bg-primary/20 ring-2 ring-primary"
+                )}
+                onPointerDown={(e) => handlePointerDown(e, day)}
+                onPointerUp={() => handlePointerUp(day)}
+                onPointerMove={handlePointerMove}
+                onPointerCancel={() => holdTimeoutRef.current && clearTimeout(holdTimeoutRef.current)}
+                onDragOver={(e) => handleDragOver(e, dateKey)}
+                onDrop={(e) => handleDrop(e, dateKey)}
+              >
+                <div className="flex justify-between items-center mb-1">
+                  <time dateTime={dateKey} className={cn("font-semibold", isCurrentDay && !isSelectedDay && "text-primary")}>
+                    {format(day, "d")}
+                  </time>
+                  {!isReadOnly && (
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity absolute top-1 right-1"
+                        onClick={(e) => { e.stopPropagation(); openNewEntryDialog(day); }}
+                    >
+                        <Plus className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                <ScrollArea className="flex-1 -mr-2 pr-2">
+                  <div className="space-y-1">
+                    {dayHolidays.map(h => (
+                         <div key={h.name} className="px-2 py-1 bg-purple-500/10 text-purple-700 rounded-md text-xs font-semibold flex items-center gap-1">
+                            <PartyPopper className="h-3 w-3" /> {h.name}
+                        </div>
+                    ))}
+                     {dayBirthdays.map(b => (
+                         <div key={b.id} className="px-2 py-1 bg-pink-500/10 text-pink-600 rounded-md text-xs font-semibold flex items-center gap-1">
+                            <Cake className="h-3 w-3" /> {b.name}
+                        </div>
+                    ))}
+                    {dayEntries.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className={cn(
+                            "px-2 py-1 rounded-md text-xs font-semibold flex items-center justify-between cursor-pointer", 
+                            entry.isPaid ? 'bg-secondary text-muted-foreground opacity-70' :
+                            entry.type === 'bill' ? 'bg-destructive/10' : 'bg-emerald-500/10',
+                            draggedEntry?.id === entry.id && 'opacity-50'
+                        )}
+                        onClick={(e) => { e.stopPropagation(); handleEditClick(entry); }}
+                        draggable={!isReadOnly}
+                        onDragStart={(e) => {e.stopPropagation(); handleDragStart(entry)}}
+                        onDragEnd={handleDragEnd}
+                      >
+                         <div className="flex items-center gap-1.5 truncate text-card-foreground">
+                            {isSelectionMode ? (
+                                <Checkbox 
+                                    className="mr-1" 
+                                    checked={isInstanceSelected(entry.id)}
+                                    onCheckedChange={(checked) => onSelectInstances({instanceId: entry.id, masterId: getOriginalIdFromInstance(entry.id), date: entry.date}, !!checked)}
+                                    onClick={(e) => e.stopPropagation()}
+                                />
+                            ) : entry.isPaid ? (
+                                <Check className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                            ) : entry.type === 'bill' ? (
+                                 <Checkbox
+                                    className="mr-1"
+                                    checked={entry.isPaid}
+                                    onCheckedChange={(checked) => {
+                                        onInstancePaidToggle(entry.id, !!checked);
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                />
+                            ) : (
+                                 <Image 
+                                    src={'/income.png'}
+                                    alt={entry.type}
+                                    width={12}
+                                    height={12}
+                                    className="flex-shrink-0"
+                                />
+                            )}
+                            <span className={cn("truncate", entry.isPaid && "line-through")}>{entry.name}</span>
+                         </div>
+                        <span className={cn("text-card-foreground", entry.isPaid && "line-through")}>{formatCurrency(entry.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+
             );
           })}
         </div>
       </main>
       {!isMobile && (
+
         <aside className="w-[300px] border-l p-4 md:p-6 hidden lg:block">
             <ScrollArea className="h-full">
               <SidebarContent periods={payPeriods} activeIndex={activePeriodIndex} initialBalance={initialBalance} />
             </ScrollArea>
+
+        <aside className="w-1/3 max-w-sm border-l overflow-y-auto hidden lg:block bg-secondary/50">
+           <SidebarContent 
+                weeklyTotals={weeklyTotals} 
+                selectedDate={selectedDate || new Date()}
+            />
+
         </aside>
       )}
     </div>
