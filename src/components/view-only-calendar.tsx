@@ -1,5 +1,4 @@
-
-
+// src/components/view-only-calendar.tsx
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
@@ -7,24 +6,17 @@ import { useSearchParams } from "next/navigation";
 import { useMedia } from "react-use";
 import Image from 'next/image';
 
-
-import type { Entry, RolloverPreference, Birthday, Holiday, BillCategory } from "@/lib/types";
-
-import type { Entry, RolloverPreference, WeeklyBalances, Birthday, Holiday, MasterEntry } from "@/lib/types";
-
+import type { Entry, RolloverPreference, Birthday, Holiday, MasterEntry } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Menu, AlertCircle } from "lucide-react";
-import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDay, add, setDate, getDate, startOfWeek, endOfWeek, eachWeekOfInterval, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, isWithinInterval, isAfter, max, startOfDay, getMonth, getYear } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDay, add, setDate, getDate, startOfWeek, endOfWeek, eachWeekOfInterval, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, isWithinInterval, isAfter, max, parseISO, getYear } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShieldAlert } from "lucide-react";
-
-import { parseDateInTimezone } from "@/lib/utils";
-import { buildPayPeriods, PayPeriod, findPeriodForDate, spentSoFar } from "@/lib/pay-periods";
-
+import { buildPayPeriods } from "@/lib/pay-periods";
 import { parseDateInTimezone } from "@/lib/time";
 
 
@@ -225,8 +217,8 @@ export default function ViewOnlyCalendar() {
   }, [data]);
   
   const payPeriods = useMemo(
-    () => buildPayPeriods(allGeneratedEntries, 1),
-    [allGeneratedEntries]
+    () => buildPayPeriods(allGeneratedEntries, 1, data?.timezone || 'UTC'),
+    [allGeneratedEntries, data?.timezone]
   );
   
   const activePeriodIndex = useMemo(
@@ -272,14 +264,9 @@ export default function ViewOnlyCalendar() {
               </SheetHeader>
               <ScrollArea className="flex-1">
                   <SidebarContent
-
                     periods={payPeriods}
                     activeIndex={activePeriodIndex}
                     initialBalance={initialBalance}
-
-                    weeklyTotals={weeklyTotals}
-                    selectedDate={selectedDate}
-
                   />
               </ScrollArea>
             </SheetContent>
@@ -311,12 +298,9 @@ export default function ViewOnlyCalendar() {
         onScoreInfoClick={() => {}}
         onScoreHistoryClick={() => {}}
         onDojoInfoClick={() => {}}
-
         activePeriodIndex={activePeriodIndex}
         initialBalance={initialBalance}
-
         onInstancePaidToggle={() => {}}
-
       />
     </div>
   );
