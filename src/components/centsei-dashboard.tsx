@@ -56,7 +56,7 @@ import {
 
 import type { Entry, RolloverPreference, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent, MasterEntry } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
-import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO, startOfDay } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { scheduleNotificationsLocal, cancelAllNotificationsLocal } from "@/lib/notification-manager";
@@ -86,6 +86,7 @@ import { useDraggableFab } from "@/hooks/use-draggable-fab";
 import { buildPayPeriods } from "@/lib/pay-periods";
 import { moveOneTime, moveSeries, moveSingleOccurrence, validateMaster, updateSeries, updateSingleOccurrence, deleteSeries, deleteSingleOccurrence } from "@/lib/move";
 import { parseDateInTimezone } from "@/lib/time";
+import { startOfDay } from "date-fns";
 
 
 
@@ -94,7 +95,7 @@ const generateRecurringInstances = (entry: MasterEntry, start: Date, end: Date, 
 
   const instanceMap = new Map<string, Entry>();
   
-  const anchorDate = startOfDay(parseDateInTimezone(entry.date, timezone));
+  const anchorDate = parseDateInTimezone(entry.date, timezone);
   const floorDate = max([anchorDate, startOfDay(start)]);
   
   const recurrenceEndDate = entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null;
@@ -357,8 +358,8 @@ export default function CentseiDashboard() {
   }, [entries, timezone]);
 
   const payPeriods = useMemo(
-    () => buildPayPeriods(allGeneratedEntries, 1),
-    [allGeneratedEntries]
+    () => buildPayPeriods(allGeneratedEntries, 1, timezone),
+    [allGeneratedEntries, timezone]
   );
   
   const activePeriodIndex = useMemo(() => {
