@@ -4,7 +4,6 @@ import {
   compareAsc,
   differenceInCalendarDays,
   isBefore,
-  startOfDay,
 } from "date-fns";
 import type { Entry } from "./types";
 import { parseDateInTimezone } from "./time";
@@ -41,8 +40,8 @@ const getAmt = (e: any): number => {
 export function buildPayPeriods(all: Entry[], clusterGapDays = 1, timezone: string): PayPeriod[] {
   const allIncomes = all
     .filter(e => getKind(e) === "income")
-    .map(e => ({ ...e, date: getDate(e, timezone).toISOString() }))
-    .sort((a, b) => compareAsc(new Date(a.date), new Date(b.date)));
+    .map(e => ({ ...e, dateObj: getDate(e, timezone) }))
+    .sort((a, b) => compareAsc(a.dateObj, b.dateObj));
 
   if (!allIncomes.length) return [];
 
@@ -51,9 +50,9 @@ export function buildPayPeriods(all: Entry[], clusterGapDays = 1, timezone: stri
   let current: Run | null = null;
 
   for (const inc of allIncomes) {
-    const d = parseDateInTimezone(inc.date, timezone);
+    const d = inc.dateObj;
     if (!current) { current = { start: d, incomes: [inc] }; continue; }
-    const lastD = parseDateInTimezone(current.incomes[current.incomes.length - 1].date, timezone);
+    const lastD = current.incomes[current.incomes.length - 1].dateObj;
     const gap = differenceInCalendarDays(d, lastD);
     if (gap <= clusterGapDays) current.incomes.push(inc);
     else { runs.push(current); current = { start: d, incomes: [inc] }; }
