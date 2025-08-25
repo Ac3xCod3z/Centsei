@@ -25,7 +25,12 @@ const getKind = (e: any): "income" | "expense" => {
 };
 
 const getDate = (e: any, timezone: string): Date => {
-    return parseDateInTimezone(e.date ?? e.dueDate ?? e.when, timezone);
+    const d = e.date ?? e.dueDate ?? e.when;
+    // Handle cases where the date might already be a Date object from previous processing
+    if (d instanceof Date) {
+        return d;
+    }
+    return parseDateInTimezone(d, timezone);
 };
 
 const getAmt = (e: any): number => {
@@ -73,15 +78,15 @@ export function buildPayPeriods(all: Entry[], clusterGapDays = 1, timezone: stri
 
   const expenses = all
     .filter(e => getKind(e) === "expense")
-    .map(e => ({ ...e, date: getDate(e, timezone).toISOString() }));
+    .map(e => ({ ...e, dateObj: getDate(e, timezone) }));
 
   const incomeIdsInRuns = new Set(allIncomes.map(i => i.id));
   const bonusIncomes = all
     .filter(e => getKind(e) === "income" && !incomeIdsInRuns.has(e.id))
-    .map(e => ({ ...e, date: getDate(e, timezone).toISOString() }));
+    .map(e => ({ ...e, dateObj: getDate(e, timezone) }));
 
-  const place = (e: Entry, field: "expenses" | "incomes") => {
-    const d = getDate(e, timezone);
+  const place = (e: Entry & { dateObj: Date }, field: "expenses" | "incomes") => {
+    const d = e.dateObj;
     for (const p of periods) {
       if (d >= p.start && isBefore(d, p.end)) {
         if (field === 'expenses') p.expenses.push(e);
