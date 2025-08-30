@@ -396,88 +396,38 @@ export default function CentseiDashboard() {
     }
   };
 
-
-  const updateSeries = async (id: string, fullEntryData: any) => {
-    const masterEntry = entries.find(e => e.id === id);
-    if (!masterEntry) return;
-
-    const cleanedExceptions: typeof masterEntry.exceptions = {};
-    if (masterEntry.exceptions) {
-      for (const [date, ex] of Object.entries(masterEntry.exceptions)) {
-        if (ex && !ex.movedTo && !ex.movedFrom) {
-          cleanedExceptions[date] = ex;
-        }
-      }
-    }
-
-    const seriesData = {
-      ...fullEntryData,
-      id: undefined, // Don't save ID in the document body
-      exceptions: cleanedExceptions,
-      recurrenceCount: fullEntryData.recurrenceCount || masterEntry.recurrenceCount
-    };
-
-    if (user) {
-      await updateDoc(doc(firestore, 'users', user.uid, 'calendar_entries', id), stripUndefined({ ...seriesData, updated_at: serverTimestamp() }));
-    } else {
-      setEntries(prev => prev.map(e => (e.id === id ? { ...e, ...seriesData, id } : e)));
-    }
-  };
-
-
   const handleSaveEntry = async (
-      entryToSave: Omit<Entry, 'id' | 'date'> & { id?: string; date: Date; originalDate?: string },
-      isSeriesUpdate = false
-  ) => {
+    entryToSave: Omit<Entry, 'id' | 'date'> & { id?: string; date: Date; originalDate?: string },
+    isSeriesUpdate = false
+) => {
     const { originalDate, ...data } = entryToSave;
     const masterId = data.id ? getOriginalIdFromInstance(data.id) : undefined;
     const masterEntry = masterId ? entries.find(e => e.id === masterId) : undefined;
     
-    if (masterEntry && masterEntry.recurrence !== 'none' && !isSeriesUpdate && data.id) {
+    // Check if we need to show the update dialog for recurring entries
+    if (masterEntry && masterEntry.recurrence !== 'none' && !isSeriesUpdate && !updateRequest) {
         setUpdateRequest({ entry: entryToSave, isSeries: false });
         return;
     }
     
-    setUpdateRequest(null);
+    setUpdateRequest(null); // Clear the request once we proceed
 
-    const saveData: any = { ...data };
+    const saveData = { ...data };
     if (saveData.date) saveData.date = format(saveData.date, 'yyyy-MM-dd');
     if (saveData.recurrenceEndDate) saveData.recurrenceEndDate = format(saveData.recurrenceEndDate, 'yyyy-MM-dd');
     
     if (masterId && masterEntry) {
+        let updatedEntry: MasterEntry;
         if (isSeriesUpdate) {
-            await updateSeries(masterId, saveData);
-        } else { // Single instance update
-             if (masterEntry.recurrence === 'none') {
-                 await updateSeries(masterId, saveData);
-             } else {
-                 // It's a recurring entry, create an exception
-                const exceptions = { ...masterEntry.exceptions };
-                const instanceDate = originalDate || saveData.date;
-                
-                const exceptionData = {
-                  name: data.name === masterEntry.name ? undefined : data.name,
-                  amount: data.amount === masterEntry.amount ? undefined : data.amount,
-                  isPaid: data.isPaid,
-                  isAutoPay: data.isAutoPay === masterEntry.isAutoPay ? undefined : data.isAutoPay,
-                  category: data.category === masterEntry.category ? undefined : data.category,
-                };
-                
-                if(data.type === 'income') delete (exceptionData as any).category;
+            updatedEntry = updateSeries(masterEntry, saveData);
+        } else {
+            updatedEntry = updateSingleOccurrence(masterEntry, originalDate || saveData.date, saveData);
+        }
 
-                exceptions[instanceDate] = { ...exceptions[instanceDate], ...stripUndefined(exceptionData) };
-                
-                if(originalDate && originalDate !== saveData.date) {
-                    exceptions[originalDate] = { ...exceptions[originalDate], movedTo: saveData.date };
-                    exceptions[saveData.date] = { ...exceptions[saveData.date], ...stripUndefined(exceptionData), movedFrom: originalDate };
-                }
-                
-                if (user) {
-                    await updateDoc(doc(firestore, 'users', user.uid, 'calendar_entries', masterId), { exceptions: stripUndefined(exceptions), updated_at: serverTimestamp() });
-                } else {
-                    setEntries(prev => prev.map(e => e.id === masterId ? { ...e, exceptions: stripUndefined(exceptions) } : e));
-                }
-            }
+        if (user) {
+            await updateDoc(doc(firestore, 'users', user.uid, 'calendar_entries', masterId), stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
+        } else {
+            setEntries(prev => prev.map(e => (e.id === masterId ? updatedEntry : e)));
         }
     } else { // New entry
         const newEntryData = { ...saveData, created_at: serverTimestamp(), updated_at: serverTimestamp() };
@@ -492,7 +442,8 @@ export default function CentseiDashboard() {
     toast({ title: 'Entry Saved', description: `Your ${data.type} has been saved.` });
     setEntryDialogOpen(false);
     setEditingEntry(null);
-  };
+};
+
 
   const handleCopyEntry = (entry: Entry) => {
     if (!selectedDate) return;
@@ -713,47 +664,38 @@ export default function CentseiDashboard() {
   }
 
   const handleReorder = (orderedEntries: Entry[]) => {
-    const newMasterEntries = [...entries];
     
+    const masterUpdates = new Map<string, MasterEntry>();
+
+    orderedEntries.forEach((entry, index) => {
+      const masterId = getOriginalIdFromInstance(entry.id);
+      
+      // Get the latest version of the master entry, either from the map or from the state
+      const masterEntry = masterUpdates.get(masterId) || entries.find(e => e.id === masterId);
+      if (!masterEntry) return;
+
+      const updatedMaster = { ...masterEntry, exceptions: { ...(masterEntry.exceptions || {}) } };
+      
+      // Update the order for the specific instance date
+      updatedMaster.exceptions[entry.date] = { 
+        ...updatedMaster.exceptions[entry.date], 
+        order: index 
+      };
+      
+      masterUpdates.set(masterId, stripUndefined(updatedMaster));
+    });
+
     if (user) {
         const batch = writeBatch(firestore);
-        const masterUpdates = new Map<string, any>();
-        
-        orderedEntries.forEach((entry, index) => {
-            const masterId = getOriginalIdFromInstance(entry.id);
-            const masterEntry = newMasterEntries.find(e => e.id === masterId);
-            if (!masterEntry) return;
-
-            const currentUpdates = masterUpdates.get(masterId) || { exceptions: { ...masterEntry.exceptions } };
-            
-            currentUpdates.exceptions[entry.date] = { ...currentUpdates.exceptions[entry.date], order: index };
-            masterUpdates.set(masterId, currentUpdates);
-        });
-
-        for (const [id, updates] of masterUpdates.entries()) {
+        masterUpdates.forEach((updatedMaster, id) => {
             const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', id);
-            batch.update(docRef, { exceptions: stripUndefined(updates.exceptions) });
-        }
+            batch.update(docRef, { exceptions: updatedMaster.exceptions });
+        });
         batch.commit();
     } else {
-      const masterUpdates: { [key: string]: { exceptions: any, isNew?: boolean } } = {};
-
-      orderedEntries.forEach((entry, index) => {
-          const masterId = getOriginalIdFromInstance(entry.id);
-          if (!masterUpdates[masterId]) {
-              const masterEntry = newMasterEntries.find(e => e.id === masterId);
-              masterUpdates[masterId] = { exceptions: { ...masterEntry?.exceptions } };
-          }
-          masterUpdates[masterId].exceptions[entry.date] = { ...(masterUpdates[masterId].exceptions[entry.date] || {}), order: index };
-      });
-      
-      const newEntries = newMasterEntries.map(e => {
-          if (masterUpdates[e.id]) {
-              return { ...e, exceptions: masterUpdates[e.id].exceptions };
-          }
-          return e;
-      });
-      setEntries(newEntries);
+       setEntries(prevEntries => {
+          return prevEntries.map(e => masterUpdates.get(e.id) || e);
+       });
     }
 
     toast({ title: 'Order Saved', description: 'Your new entry order has been saved.' });
