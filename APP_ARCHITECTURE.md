@@ -1,4 +1,3 @@
-
 # Centsei Application Architecture & Overview
 
 This document serves as a comprehensive reference for the architecture, features, and technology stack of the Centsei application. Its purpose is to provide a "source of truth" to ensure development consistency and prevent regressions.
@@ -53,25 +52,26 @@ The application uses the Next.js App Router for its file-based routing system.
 *   **Authentication (`src/components/auth-provider.tsx`)**: Manages the user's authentication state (Firebase user or guest). It protects app routes and provides user context to other components.
 *   **Local Storage Hook (`src/hooks/use-local-storage.ts`)**: The primary mechanism for data persistence in "guest mode." It saves all user data (entries, goals, settings) to the browser's local storage. Data is synced with Firestore upon login.
 
-#### 2. The Main Dashboard & Calendar
+#### 2. The Main Dashboard, Calendar & Pay Periods
 
 This is the central part of the application.
 
 *   **`src/components/centsei-dashboard.tsx`**: The primary stateful component that acts as the application's orchestrator.
     *   Fetches and manages all financial data (entries, goals, birthdays).
-    *   Handles all create, update, and delete operations.
+    *   Handles all create, update, and delete operations via the `move.ts` library.
     *   Manages the state of all dialogs (for new entries, settings, summaries).
     *   Calculates high-level financial data like pay periods and the budget score.
     *   Renders a global "Add Entry" button.
-*   **`src/components/centsei-calendar.tsx`**: The component that renders the main calendar grid.
-    *   Receives all financial data as props from the dashboard.
+*   **`src/lib/pay-periods.ts`**: The financial engine of the application. The `buildPayPeriods` function is the source of truth for all financial summaries. It clusters consecutive income entries to define a "pay period" and then calculates total income, expenses, and net flow for that duration.
+*   **`src/components/centsei-calendar.tsx`**: The component that renders the main calendar grid and the pay-period sidebar.
+    *   Receives all financial data and pre-calculated `payPeriods` as props from the dashboard.
     *   Uses `date-fns` to calculate and display the days.
     *   Maps over entries to display bills and income on the correct days.
     *   **Handles all user interactions**:
         *   **Desktop:** A click on a day with entries opens the `DayEntriesDialog`. A click on an empty day only highlights the day.
         *   **Mobile:** A tap on any day highlights it. A long press on a day with entries opens the `DayEntriesDialog`. Text selection and context menus are disabled.
-*   **`src/components/entry-dialog.tsx`**: The form for creating and editing financial entries. It uses `react-hook-form` and `zod` for robust validation. It also contains the logic for handling recurring entry updates.
-*   **`src/components/sidebar.tsx` (Conceptual - part of `centsei-calendar.tsx`)**: The sidebar provides a detailed financial summary for the currently selected pay period. It shows the starting balance, total income, total expenses, net flow for the period, and the projected ending balance. This component receives its data directly from the main dashboard to ensure accuracy.
+*   **`src/components/sidebar.tsx` (Part of `centsei-calendar.tsx`)**: The `SidebarContent` component provides a detailed financial summary for the currently selected pay period. It shows the starting balance, total income, total expenses, net flow for the period, and the projected ending balance. This component receives its data directly from the `CentseiCalendar` to ensure accuracy.
+*   **`src/components/entry-dialog.tsx`**: The form for creating and editing financial entries. It uses `react-hook-form` and `zod` for robust validation. It contains the logic for handling recurring entry updates.
 
 #### 3. AI-Powered Features
 
@@ -89,7 +89,7 @@ This is the central part of the application.
     *   `src/components/goals-dialog.tsx`: Allows users to set and track savings goals.
     *   `src/components/birthdays-dialog.tsx`: Allows users to add birthdays to improve financial forecasting.
     *   `src/components/enso-insights-dialog.tsx`: Provides charts and graphs visualizing cash flow, category spending, and savings balance.
-    *   `src/components/monthly-summary-dialog.tsx`: A high-level overview of a selected month's finances.
+    *   `src/components/monthly-summary-dialog.tsx`: A high-level overview of a selected month's finances based on pay periods.
 
 ### Styling & UI Conventions
 

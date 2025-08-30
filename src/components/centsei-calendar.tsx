@@ -23,20 +23,26 @@ import {
 } from "date-fns";
 import { ChevronLeft, ChevronRight, Plus, Check, Cake, PartyPopper, AlertCircle } from "lucide-react";
 
-
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn, formatCurrency, parseDateInTimezone } from "@/lib/utils";
-import type { Entry, SelectedInstance, Birthday, Holiday, BudgetScore, DojoRank, Goal } from "@/lib/types";
+import { cn, formatCurrency } from "@/lib/utils";
+import type { Entry, SelectedInstance, Birthday, Holiday, BudgetScore, DojoRank, Goal, MasterEntry } from "@/lib/types";
+import { Checkbox } from "./ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { useMedia } from "react-use";
 import { getHolidaysForYear } from "@/lib/holidays";
-import { PayPeriod, findPeriodForDate } from "@/lib/pay-periods";
-
+import { PayPeriod } from "@/lib/pay-periods";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import { BudgetScoreWidget } from "./budget-score-widget";
+import { DojoJourneyWidget } from "./dojo-journey-widget";
+import { Separator } from "./ui/separator";
+import { parseDateInTimezone } from "@/lib/time";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const HOLD_DURATION_MS = 500; // 500ms for press-and-hold
 
 function getOriginalIdFromInstance(key: string) {
   const m = key.match(/^(.*)-(\d{4})-(\d{2})-(\d{2})$/);
@@ -44,13 +50,13 @@ function getOriginalIdFromInstance(key: string) {
 }
 
 type CentseiCalendarProps = {
-    entries: Entry[];
+    entries: MasterEntry[];
     generatedEntries: Entry[];
-    setEntries: (value: Entry[] | ((val: Entry[]) => Entry[])) => void;
     timezone: string;
     openNewEntryDialog: (date: Date) => void;
     setEditingEntry: (entry: Entry | null) => void;
-    setSelectedDate: (date: Date) => void;
+    selectedDate: Date | null;
+    setSelectedDate: (date: Date | null) => void;
     setEntryDialogOpen: (isOpen: boolean) => void;
     openDayEntriesDialog: (holidays: Holiday[], birthdays: Birthday[]) => void;
     isReadOnly: boolean;
@@ -70,6 +76,7 @@ type CentseiCalendarProps = {
     onDojoInfoClick: () => void;
     activePeriodIndex: number;
     initialBalance: number;
+    onInstancePaidToggle: (instanceId: string, isPaid: boolean) => void;
 };
 
 type DayCellProps = {
@@ -226,11 +233,10 @@ function DayCell(props: DayCellProps) {
 
 export function CentseiCalendar(props: CentseiCalendarProps) {
   const {
-    entries,
     generatedEntries,
     timezone,
-    openNewEntryDialog,
     setEditingEntry,
+    selectedDate,
     setSelectedDate,
     setEntryDialogOpen,
     openDayEntriesDialog,
@@ -242,14 +248,6 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
     setSelectedInstances,
     onBulkDelete,
     onMoveRequest,
-    birthdays,
-    budgetScore,
-    dojoRank,
-    goals,
-    onScoreInfoClick,
-    onScoreHistoryClick,
-    onDojoInfoClick,
-    setEntries,
     activePeriodIndex,
     initialBalance,
   } = props;
@@ -269,22 +267,22 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
     
     const dayEntries = generatedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), day));
     const dayHolidays = getHolidaysForYear(getYear(day)).filter(h => isSameDay(h.date, day));
-    const dayBirthdays = birthdays.filter(b => {
+    const dayBirthdays = props.birthdays.filter(b => {
         if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
         const [bMonth, bDay] = b.date.split('-').map(Number);
         return getMonth(day) + 1 === bMonth && day.getDate() === bDay;
     });
 
     const hasContent = dayEntries.length > 0 || dayHolidays.length > 0 || dayBirthdays.length > 0;
-    
-    // On Desktop: click on content opens day dialog.
-    if (!isMobile && hasContent) {
-      openDayEntriesDialog(dayHolidays, dayBirthdays);
-    }
-    
-    // On Mobile: long-press on content opens day dialog.
-    if (isMobile && isLongPress && hasContent) {
-      openDayEntriesDialog(dayHolidays, dayBirthdays);
+
+    if (isMobile) {
+        if (isLongPress && hasContent) {
+            openDayEntriesDialog(dayHolidays, dayBirthdays);
+        }
+    } else { // Desktop
+        if (hasContent) {
+            openDayEntriesDialog(dayHolidays, dayBirthdays);
+        }
     }
   };
   
@@ -293,7 +291,7 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
 
     longPressTimerRef.current = setTimeout(() => {
       handleDayInteraction(day, true); // Signal that it's a long press
-    }, 500); // 500ms for long press
+    }, HOLD_DURATION_MS); 
   };
 
   const handlePointerUp = () => {
@@ -382,7 +380,7 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
                 entriesForDay={dayEntries}
                 isCurrentMonth={isSameMonth(day, currentMonthDate)}
                 isToday={isToday(day)}
-                isSelected={isSameDay(day, localSelectedDate)}
+                isSelected={selectedDate ? isSameDay(day, selectedDate) : false}
                 onSelect={() => handleDayInteraction(day)}
                 onDrop={handleDrop}
                 onDragStart={handleDragStart}

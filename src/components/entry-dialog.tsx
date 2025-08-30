@@ -36,9 +36,10 @@ import type { Entry, CategoryDisplayPreference, BillCategory } from "@/lib/types
 import { BillCategories, RecurrenceOptions, CategoryEmojis } from "@/lib/types";
 import { Checkbox } from "./ui/checkbox";
 import useLocalStorage from "@/hooks/use-local-storage";
-import { parseDateInTimezone } from "@/lib/utils";
+import { parseDateInTimezone } from "@/lib/time";
 import { Separator } from "./ui/separator";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "./ui/scroll-area";
 
 
 const formSchema = z.object({
@@ -58,7 +59,7 @@ type EntryFormProps = {
   isOpen: boolean;
   onClose: () => void;
   onSave: (entry: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }) => void;
-  onDelete?: (id: string) => void;
+  onDelete?: (entry: Entry) => void;
   onCopy?: (entry: Entry) => void;
   entry: Entry | null;
   selectedDate: Date;
@@ -88,41 +89,32 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
     if (isOpen) {
       const isNew = !entry;
       const isCopy = entry && !entry.id;
-      const isInstance = entry?.id && entry.id.includes(entry.date);
       
-      let initialValues = {
+      let initialValues: Omit<z.infer<typeof formSchema>, 'amount' | 'recurrenceCount'> & { amount: any, recurrenceCount: any } = {
         type: "bill",
         name: "",
-        amount: 0,
+        amount: "" as any,
         date: selectedDate,
         recurrence: 'none',
-        recurrenceEndDate: undefined,
-        recurrenceCount: undefined,
+        recurrenceEndDate: null,
+        recurrenceCount: '',
         category: undefined,
         isPaid: false,
         isAutoPay: false,
       };
 
       if (entry) {
-        let isPaidStatus = entry.isPaid ?? false;
-        if (isInstance) {
-           const exception = entry.exceptions?.[entry.date];
-           if (exception?.isPaid !== undefined) {
-             isPaidStatus = exception.isPaid;
-           }
-        }
-
         initialValues = {
             ...initialValues,
             type: entry.type || "bill",
             name: entry.name || "",
-            amount: entry.amount || 0,
+            amount: entry.amount || ('' as any),
             date: isCopy ? selectedDate : parseDateInTimezone(entry.date, timezone),
             recurrence: entry.recurrence || 'none',
-            recurrenceEndDate: entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : undefined,
-            recurrenceCount: entry.recurrenceCount || undefined,
+            recurrenceEndDate: entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null,
+            recurrenceCount: entry.recurrenceCount || '',
             category: entry.category as BillCategory | undefined,
-            isPaid: isCopy ? false : isPaidStatus,
+            isPaid: isCopy ? false : entry.isPaid ?? false,
             isAutoPay: entry.isAutoPay || false,
         };
       }
@@ -151,29 +143,28 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
     }
 
     if (recurrenceEndType === 'never') {
-      dataToSave.recurrenceEndDate = undefined;
-      dataToSave.recurrenceCount = undefined;
+      dataToSave.recurrenceEndDate = null;
+      dataToSave.recurrenceCount = null;
     } else if (recurrenceEndType === 'on') {
-      dataToSave.recurrenceCount = undefined;
+      dataToSave.recurrenceCount = null;
       // Do not format here, keep it as a Date object for the parent
     } else if (recurrenceEndType === 'after') {
-      dataToSave.recurrenceEndDate = undefined;
+      dataToSave.recurrenceEndDate = null;
     }
 
     if (entry && entry.id) {
       // The ID passed back is the ID of the original master entry
       const originalId = getOriginalIdFromInstance(entry.id);
-      onSave({ ...dataToSave, id: originalId });
+      onSave({ ...dataToSave, id: originalId, originalDate: entry.date });
     } else {
       // New entry or a copy (which has no id)
       onSave({ ...dataToSave, id: undefined });
     }
-    onClose();
   }
   
   const handleDelete = () => {
-    if (entry && entry.id && onDelete) {
-        onDelete(entry.id);
+    if (entry && onDelete) {
+        onDelete(entry);
         onClose();
     }
   }
@@ -184,7 +175,7 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
     }
   }
 
-  const isEditing = entry && entry.id;
+  const isEditing = entry && entry.id && getOriginalIdFromInstance(entry.id);
 
   if (!isOpen) {
     return null;
@@ -192,304 +183,305 @@ export function EntryDialog({ isOpen, onClose, onSave, onDelete, onCopy, entry, 
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="sm:max-w-[425px]" onInteractOutside={(e) => e.preventDefault()}>
-            <DialogHeader>
+        <DialogContent className="sm:max-w-md grid-rows-[auto_minmax(0,1fr)_auto] p-0 max-h-[90vh]" onInteractOutside={(e) => e.preventDefault()}>
+            <DialogHeader className="p-6 pb-2">
             <DialogTitle>{isEditing ? "Edit Entry" : "Add New Entry"}</DialogTitle>
             <DialogDescription>
                 {isEditing ? "Update the details of your financial entry." : "Add a new bill or income to your calendar."}
             </DialogDescription>
             </DialogHeader>
-            <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                <FormField
-                control={form.control}
-                name="type"
-                render={({ field }) => (
-                    <FormItem className="space-y-3">
-                    <FormLabel>Entry Type</FormLabel>
-                    <FormControl>
-                        <RadioGroup
-                        onValueChange={field.onChange}
-                        value={field.value}
-                        className="flex space-x-4"
-                        >
-                        <FormItem className="flex items-center space-x-2 space-y-0">
-                            <FormControl>
-                            <RadioGroupItem value="bill" />
-                            </FormControl>
-                            <FormLabel className="font-normal">Bill</FormLabel>
-                        </FormItem>
-                        <FormItem className="flex items-center space-x-2 space-y-0">
-                            <FormControl>
-                            <RadioGroupItem value="income" />
-                            </FormControl>
-                            <FormLabel className="font-normal">Income</FormLabel>
-                        </FormItem>
-                        </RadioGroup>
-                    </FormControl>
-                    <FormMessage />
-                    </FormItem>
-                )}
-                />
-                <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                    <FormItem>
-                    <FormLabel>Name / Source</FormLabel>
-                    <FormControl>
-                        <Input placeholder="e.g. Rent, Paycheck" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                    </FormItem>
-                )}
-                />
-                <FormField
-                control={form.control}
-                name="amount"
-                render={({ field }) => (
-                    <FormItem>
-                    <FormLabel>Amount</FormLabel>
-                    <FormControl>
-                        <Input type="number" placeholder="0.00" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                    </FormItem>
-                )}
-                />
-
-                {(entryType === 'bill') && (
-                <FormField
+            <ScrollArea className="px-6">
+                <Form {...form}>
+                <form id="entry-form" onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+                    <FormField
                     control={form.control}
-                    name="category"
+                    name="type"
                     render={({ field }) => (
-                    <FormItem>
-                        <FormLabel>Category</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
+                        <FormItem className="space-y-3">
+                        <FormLabel>Entry Type</FormLabel>
                         <FormControl>
-                            <SelectTrigger>
-                               <SelectValue placeholder="Select a category" />
-                            </SelectTrigger>
+                            <RadioGroup
+                            onValueChange={field.onChange}
+                            value={field.value}
+                            className="flex space-x-4"
+                            >
+                            <FormItem className="flex items-center space-x-2 space-y-0">
+                                <FormControl>
+                                <RadioGroupItem value="bill" />
+                                </FormControl>
+                                <FormLabel className="font-normal">Bill</FormLabel>
+                            </FormItem>
+                            <FormItem className="flex items-center space-x-2 space-y-0">
+                                <FormControl>
+                                <RadioGroupItem value="income" />
+                                </FormControl>
+                                <FormLabel className="font-normal">Income</FormLabel>
+                            </FormItem>
+                            </RadioGroup>
                         </FormControl>
-                        <SelectContent>
-                            {BillCategories.map(cat => (
-                            <SelectItem key={cat} value={cat}>
-                               {categoryDisplay === 'emoji' ? (
-                                    <span className="flex items-center gap-2">
-                                        {CategoryEmojis[cat]}
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                    <FormField
+                    control={form.control}
+                    name="name"
+                    render={({ field }) => (
+                        <FormItem>
+                        <FormLabel>Name / Source</FormLabel>
+                        <FormControl>
+                            <Input placeholder="e.g. Rent, Paycheck" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                    <FormField
+                    control={form.control}
+                    name="amount"
+                    render={({ field }) => (
+                        <FormItem>
+                        <FormLabel>Amount</FormLabel>
+                        <FormControl>
+                            <Input type="number" placeholder="0.00" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+
+                    {(entryType === 'bill') && (
+                    <FormField
+                        control={form.control}
+                        name="category"
+                        render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Category</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                                <SelectTrigger>
+                                <SelectValue placeholder="Select a category" />
+                                </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                                {BillCategories.map(cat => (
+                                <SelectItem key={cat} value={cat}>
+                                {categoryDisplay === 'emoji' ? (
+                                        <span className="flex items-center gap-2">
+                                            {CategoryEmojis[cat]}
+                                            <span className="capitalize">{cat}</span>
+                                        </span>
+                                    ) : (
                                         <span className="capitalize">{cat}</span>
-                                    </span>
-                                ) : (
-                                    <span className="capitalize">{cat}</span>
+                                    )}
+                                </SelectItem>
+                                ))}
+                            </SelectContent>
+                            </Select>
+                            <FormMessage />
+                        </FormItem>
+                        )}
+                    />
+                    )}
+
+                    <FormField
+                    control={form.control}
+                    name="date"
+                    render={({ field }) => (
+                        <FormItem className="flex flex-col">
+                        <FormLabel>Date</FormLabel>
+                        <Popover>
+                            <PopoverTrigger asChild>
+                            <FormControl>
+                                <Button
+                                variant={"outline"}
+                                className={cn(
+                                    "w-full pl-3 text-left font-normal",
+                                    !field.value && "text-muted-foreground"
                                 )}
-                            </SelectItem>
-                            ))}
-                        </SelectContent>
+                                >
+                                {field.value ? (
+                                    format(field.value, "PPP")
+                                ) : (
+                                    <span>Pick a date</span>
+                                )}
+                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                </Button>
+                            </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                                mode="single"
+                                selected={field.value}
+                                onSelect={field.onChange}
+                                initialFocus
+                            />
+                            </PopoverContent>
+                        </Popover>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                    <FormField
+                    control={form.control}
+                    name="recurrence"
+                    render={({ field }) => (
+                        <FormItem>
+                        <FormLabel>Recurrence</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                            <FormControl>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select a recurrence interval" />
+                            </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                                <SelectItem value="none">None</SelectItem>
+                                <SelectItem value="weekly">Weekly</SelectItem>
+                                <SelectItem value="bi-weekly">Bi-weekly</SelectItem>
+                                <SelectItem value="monthly">Monthly</SelectItem>
+                                <SelectItem value="bimonthly">Every 2 months</SelectItem>
+                                <SelectItem value="3months">Every 3 months</SelectItem>
+                                <SelectItem value="6months">Every 6 months</SelectItem>
+                                <SelectItem value="12months">Annually</SelectItem>
+                            </SelectContent>
                         </Select>
                         <FormMessage />
-                    </FormItem>
+                        </FormItem>
                     )}
-                />
-                )}
-
-                <FormField
-                control={form.control}
-                name="date"
-                render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                    <FormLabel>Date</FormLabel>
-                    <Popover>
-                        <PopoverTrigger asChild>
-                        <FormControl>
-                            <Button
-                            variant={"outline"}
-                            className={cn(
-                                "w-full pl-3 text-left font-normal",
-                                !field.value && "text-muted-foreground"
-                            )}
-                            >
-                            {field.value ? (
-                                format(field.value, "PPP")
-                            ) : (
-                                <span>Pick a date</span>
-                            )}
-                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                            </Button>
-                        </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                            mode="single"
-                            selected={field.value}
-                            onSelect={field.onChange}
-                            initialFocus
-                        />
-                        </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                    </FormItem>
-                )}
-                />
-                <FormField
-                control={form.control}
-                name="recurrence"
-                render={({ field }) => (
-                    <FormItem>
-                    <FormLabel>Recurrence</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
-                        <FormControl>
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select a recurrence interval" />
-                        </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                            <SelectItem value="none">None</SelectItem>
-                            <SelectItem value="weekly">Weekly</SelectItem>
-                            <SelectItem value="bi-weekly">Bi-weekly</SelectItem>
-                            <SelectItem value="monthly">Monthly</SelectItem>
-                            <SelectItem value="bimonthly">Every 2 months</SelectItem>
-                            <SelectItem value="3months">Every 3 months</SelectItem>
-                            <SelectItem value="6months">Every 6 months</SelectItem>
-                            <SelectItem value="12months">Annually</SelectItem>
-                        </SelectContent>
-                    </Select>
-                    <FormMessage />
-                    </FormItem>
-                )}
-                />
-                
-                {recurrenceType && recurrenceType !== 'none' && (
-                    <div className="space-y-4 rounded-md border p-4">
-                        <h4 className="text-sm font-medium">End Recurrence</h4>
-                        <RadioGroup value={recurrenceEndType} onValueChange={(value) => setRecurrenceEndType(value as 'never' | 'on' | 'after')}>
-                             <div className="flex items-center space-x-2">
-                                <RadioGroupItem value="never" id="r-never" />
-                                <Label htmlFor="r-never">Never</Label>
-                            </div>
-                             <div className="flex items-center space-x-2">
-                                <RadioGroupItem value="on" id="r-on" />
-                                <Label htmlFor="r-on">On date</Label>
-                            </div>
-                            {recurrenceEndType === 'on' && (
-                                <FormField
-                                    control={form.control}
-                                    name="recurrenceEndDate"
-                                    render={({ field }) => (
-                                        <FormItem className="pl-6 pt-2">
-                                            <Popover>
-                                                <PopoverTrigger asChild>
+                    />
+                    
+                    {recurrenceType && recurrenceType !== 'none' && (
+                        <div className="space-y-4 rounded-md border p-4">
+                            <h4 className="text-sm font-medium">End Recurrence</h4>
+                            <RadioGroup value={recurrenceEndType} onValueChange={(value) => setRecurrenceEndType(value as 'never' | 'on' | 'after')}>
+                                <div className="flex items-center space-x-2">
+                                    <RadioGroupItem value="never" id="r-never" />
+                                    <Label htmlFor="r-never">Never</Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <RadioGroupItem value="on" id="r-on" />
+                                    <Label htmlFor="r-on">On date</Label>
+                                </div>
+                                {recurrenceEndType === 'on' && (
+                                    <FormField
+                                        control={form.control}
+                                        name="recurrenceEndDate"
+                                        render={({ field }) => (
+                                            <FormItem className="pl-6 pt-2">
+                                                <Popover>
+                                                    <PopoverTrigger asChild>
+                                                    <FormControl>
+                                                        <Button
+                                                        variant={"outline"}
+                                                        className={cn("w-full pl-3 text-left font-normal",!field.value && "text-muted-foreground")}>
+                                                        {field.value ? (format(field.value, "PPP")) : (<span>Pick a date</span>)}
+                                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                        </Button>
+                                                    </FormControl>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent className="w-auto p-0" align="start">
+                                                    <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus/>
+                                                    </PopoverContent>
+                                                </Popover>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                )}
+                                <div className="flex items-center space-x-2">
+                                    <RadioGroupItem value="after" id="r-after" />
+                                    <Label htmlFor="r-after">After</Label>
+                                </div>
+                                {recurrenceEndType === 'after' && (
+                                    <FormField
+                                        control={form.control}
+                                        name="recurrenceCount"
+                                        render={({ field }) => (
+                                            <FormItem className="pl-6 pt-2 flex items-center gap-2">
                                                 <FormControl>
-                                                    <Button
-                                                    variant={"outline"}
-                                                    className={cn("w-full pl-3 text-left font-normal",!field.value && "text-muted-foreground")}>
-                                                    {field.value ? (format(field.value, "PPP")) : (<span>Pick a date</span>)}
-                                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                                    </Button>
+                                                    <Input type="number" className="w-20" placeholder="12" {...field} />
                                                 </FormControl>
-                                                </PopoverTrigger>
-                                                <PopoverContent className="w-auto p-0" align="start">
-                                                <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus/>
-                                                </PopoverContent>
-                                            </Popover>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                            )}
-                             <div className="flex items-center space-x-2">
-                                <RadioGroupItem value="after" id="r-after" />
-                                <Label htmlFor="r-after">After</Label>
+                                                <Label className="flex-shrink-0">occurrences</Label>
+                                                <FormMessage className="ml-4"/>
+                                            </FormItem>
+                                        )}
+                                    />
+                                )}
+                            </RadioGroup>
+                        </div>
+                    )}
+
+
+                    {entryType && (
+                    <FormField
+                        control={form.control}
+                        name="isAutoPay"
+                        render={({ field }) => (
+                        <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-4">
+                            <FormControl>
+                            <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                            />
+                            </FormControl>
+                            <div className="space-y-1 leading-none">
+                            <FormLabel>
+                                Set up as Auto-{entryType === 'bill' ? 'Pay' : 'Deposit'}
+                            </FormLabel>
                             </div>
-                             {recurrenceEndType === 'after' && (
-                                <FormField
-                                    control={form.control}
-                                    name="recurrenceCount"
-                                    render={({ field }) => (
-                                        <FormItem className="pl-6 pt-2 flex items-center gap-2">
-                                             <FormControl>
-                                                <Input type="number" className="w-20" placeholder="12" {...field} />
-                                             </FormControl>
-                                             <Label>occurrences</Label>
-                                            <FormMessage className="ml-4"/>
-                                        </FormItem>
-                                    )}
-                                />
-                            )}
-                        </RadioGroup>
-                    </div>
-                )}
-
-
-                {entryType && (
-                  <FormField
+                        </FormItem>
+                        )}
+                    />
+                    )}
+                    
+                    <FormField
                     control={form.control}
-                    name="isAutoPay"
+                    name="isPaid"
                     render={({ field }) => (
-                      <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-4">
+                        <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-4">
                         <FormControl>
-                          <Checkbox
+                            <Checkbox
                             checked={field.value}
                             onCheckedChange={field.onChange}
-                          />
+                            />
                         </FormControl>
                         <div className="space-y-1 leading-none">
-                          <FormLabel>
-                            Set up as Auto-{entryType === 'bill' ? 'Pay' : 'Deposit'}
-                          </FormLabel>
+                            <FormLabel>
+                            Mark as {entryType === 'bill' ? 'Paid' : 'Received'}
+                            </FormLabel>
                         </div>
-                      </FormItem>
+                        </FormItem>
                     )}
-                  />
-                )}
-                
-                <FormField
-                  control={form.control}
-                  name="isPaid"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-4">
-                      <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel>
-                          Mark as {entryType === 'bill' ? 'Paid' : 'Received'}
-                        </FormLabel>
-                      </div>
-                    </FormItem>
-                  )}
-                />
-
-                <DialogFooter className="pt-4 sm:justify-between flex-wrap">
-                    <div className="flex gap-2 justify-start">
-                        {isEditing && (
-                            <>
-                                {onCopy && (
-                                    <Button type="button" variant="outline" onClick={handleCopy} size="icon">
-                                        <Copy className="h-4 w-4" />
-                                        <span className="sr-only">Copy</span>
-                                    </Button>
-                                )}
-                                {onDelete && (
-                                    <Button type="button" variant="destructive" onClick={handleDelete} size="icon">
-                                        <Trash2 className="h-4 w-4" />
-                                        <span className="sr-only">Delete</span>
-                                    </Button>
-                                )}
-                            </>
-                        )}
-                    </div>
-                    <div className="flex gap-2 justify-end">
-                        <Button type="button" variant="outline" onClick={onClose}>
-                            Cancel
-                        </Button>
-                        <Button type="submit">Save</Button>
-                    </div>
-                </DialogFooter>
-            </form>
-            </Form>
+                    />
+                </form>
+                </Form>
+            </ScrollArea>
+            <DialogFooter className="p-6 pt-2 flex-wrap sm:justify-between">
+                <div className="flex gap-2 justify-start">
+                    {isEditing && (
+                        <>
+                            {onCopy && (
+                                <Button type="button" variant="outline" onClick={handleCopy} size="icon">
+                                    <Copy className="h-4 w-4" />
+                                    <span className="sr-only">Copy</span>
+                                </Button>
+                            )}
+                            {onDelete && (
+                                <Button type="button" variant="destructive" onClick={handleDelete} size="icon">
+                                    <Trash2 className="h-4 w-4" />
+                                    <span className="sr-only">Delete</span>
+                                </Button>
+                            )}
+                        </>
+                    )}
+                </div>
+                <div className="flex gap-2 justify-end">
+                    <Button type="button" variant="outline" onClick={onClose}>
+                        Cancel
+                    </Button>
+                    <Button type="submit" form="entry-form">Save</Button>
+                </div>
+            </DialogFooter>
         </DialogContent>
     </Dialog>
   );

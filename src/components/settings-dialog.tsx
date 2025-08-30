@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -40,7 +41,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import type { Entry, RolloverPreference, CategoryDisplayPreference, Goal, Birthday } from "@/lib/types";
+import type { Entry, RolloverPreference, CategoryDisplayPreference, Goal, Birthday, MasterEntry } from "@/lib/types";
 import { getRolloverRecommendation } from "@/ai/flows/rollover-optimization";
 import { useToast } from "@/hooks/use-toast";
 import { timezones } from "@/lib/timezones";
@@ -49,7 +50,7 @@ import useLocalStorage from "@/hooks/use-local-storage";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { getCalendarAccessToken } from "@/lib/calendar-auth";
 import { exportEntries, createCentseiCalendar, deleteCentseiEvents, type CentseiEntryForCalendar } from "@/lib/google-calendar-helpers";
-import { parseDateInTimezone } from "@/lib/utils";
+import { parseDateInTimezone } from "@/lib/time";
 import { generateIcsContent } from "@/lib/ics-generator";
 
 const formSchema = z.object({
@@ -66,8 +67,8 @@ type SettingsDialogProps = {
   onTimezoneChange: (timezone: string) => void;
   onNotificationsToggle: (enabled: boolean) => void;
   onManageBirthdays: () => void;
-  entries: Entry[];
-  onEntriesChange: (entries: Entry[]) => void;
+  entries: MasterEntry[];
+  onEntriesChange: (entries: MasterEntry[]) => void;
   goals: Goal[];
   onGoalsChange: (goals: Goal[]) => void;
   birthdays: Birthday[];
@@ -347,7 +348,7 @@ export function SettingsDialog({
         setTimeout(() => setHasCopied(false), 2000); // Reset icon after 2s
     }, (err) => {
         console.error('Could not copy text: ', err);
-        toast({ title: "Copy Failed", description: "Could not copy the link to your clipboard.", variant: "destructive" });
+        toast({ title: "Copy Failed", description: "Could not copy link. Your browser may be blocking this action for security reasons.", variant: "destructive" });
     });
   };
 
@@ -593,5 +594,3 @@ export function SettingsDialog({
     </Dialog>
   );
 }
-
-    

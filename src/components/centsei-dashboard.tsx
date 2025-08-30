@@ -54,9 +54,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { Entry, RolloverPreference, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent } from "@/lib/types";
+
+import type { Entry, RolloverPreference, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent, MasterEntry } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
-import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO, startOfDay } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { scheduleNotificationsLocal, cancelAllNotificationsLocal } from "@/lib/notification-manager";
@@ -74,7 +75,7 @@ import SenseiSaysUI from "./sensei-says-ui";
 import { useAuth } from './auth-provider';
 import { CentseiLoader } from "./centsei-loader";
 import useLocalStorage from "@/hooks/use-local-storage";
-import { parseDateInTimezone, stripUndefined } from "@/lib/utils";
+import { stripUndefined } from "@/lib/utils";
 import { useSenseiSays } from "@/lib/sensei/useSenseiSays";
 import { useBlockMobileContextMenu } from "@/hooks/use-block-mobile-contextmenu";
 import { useBodyNoCalloutToggle } from "@/hooks/use-body-no-callout-toggle";
@@ -82,15 +83,20 @@ import { SenseiEvaluationDialog } from "./sensei-evaluation-dialog";
 import { DojoJourneyDialog } from "./dojo-journey-dialog";
 import { cn } from "@/lib/utils";
 import { useDraggableFab } from "@/hooks/use-draggable-fab";
+
 import { buildPayPeriods } from "@/lib/pay-periods";
+import { moveOneTime, moveSeries, moveSingleOccurrence, validateMaster, updateSeries, updateSingleOccurrence, deleteSeries, deleteSingleOccurrence } from "@/lib/move";
+import { parseDateInTimezone } from "@/lib/time";
+import { startOfDay } from "date-fns";
 
 
-const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezone: string): Entry[] => {
+
+const generateRecurringInstances = (entry: MasterEntry, start: Date, end: Date, timezone: string): Entry[] => {
   if (!entry.date) return [];
 
   const instanceMap = new Map<string, Entry>();
   
-  const anchorDate = startOfDay(parseDateInTimezone(entry.date, timezone));
+  const anchorDate = parseDateInTimezone(entry.date, timezone);
   const floorDate = max([anchorDate, startOfDay(start)]);
   
   const recurrenceEndDate = entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null;
@@ -99,8 +105,8 @@ const generateRecurringInstances = (entry: Entry, start: Date, end: Date, timezo
     const dateStr = format(date, 'yyyy-MM-dd');
     const exception = entry.exceptions?.[dateStr];
 
-    const today = startOfDay(new Date());
-    const instanceDate = startOfDay(date);
+    const today = parseDateInTimezone(new Date(), timezone);
+    const instanceDate = date; // Already a zoned date object
     const isPastOrToday = !isAfter(instanceDate, today);
 
     let isPaid = false;
@@ -223,6 +229,11 @@ function getOriginalIdFromInstance(key: string) {
   return m ? m[1] : key;
 }
 
+type SaveRequest = {
+  entryData: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string };
+  updateAll: boolean;
+};
+
 export default function CentseiDashboard() {
   const { user, isGuest, loading: authLoading, signOut } = useAuth();
   const router = useRouter();
@@ -231,7 +242,7 @@ export default function CentseiDashboard() {
   useBlockMobileContextMenu(pathname === "/" || pathname?.startsWith("/view"));
   useBodyNoCalloutToggle();
 
-  const [entries, setEntries] = useLocalStorage<Entry[]>('centseiEntries', []);
+  const [entries, setEntries] = useLocalStorage<MasterEntry[]>('centseiEntries', []);
   const [goals, setGoals] = useLocalStorage<Goal[]>('centseiGoals', []);
   const [birthdays, setBirthdays] = useLocalStorage<Birthday[]>('centseiBirthdays', []);
   const [rolloverPreference, setRolloverPreference] = useLocalStorage<RolloverPreference>('centseiRollover', 'carryover');
@@ -257,21 +268,22 @@ export default function CentseiDashboard() {
   const [isSenseiEvalOpen, setSenseiEvalOpen] = useState(false);
   const [isDojoJourneyOpen, setDojoJourneyOpen] = useState(false);
   
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   
   const [isSelectionMode, setSelectionMode] = useState(false);
   const [selectedInstances, setSelectedInstances] = useState<SelectedInstance[]>([]);
+
   const [entryToDelete, setEntryToDelete] = useState<{instanceId: string, isSeries: boolean} | null>(null);
   const [moveRequest, setMoveRequest] = useState<{entry: Entry, newDate: string} | null>(null);
   const [updateRequest, setUpdateRequest] = useState<{entry: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }, isSeries: boolean} | null>(null);
-
 
   const { toast } = useToast();
   const isMobile = useMedia("(max-width: 1024px)", false);
   const [isMobileSheetOpen, setMobileSheetOpen] = useState(false);
   const jsConfettiRef = useRef<JSConfetti | null>(null);
+  const settingsLoadedRef = useRef<string | null>(null);
 
   const senseiSays = useSenseiSays({ user });
 
@@ -284,6 +296,7 @@ export default function CentseiDashboard() {
   useEffect(() => {
     if (!user) {
         // If user logs out, the useLocalStorage hooks will take over.
+        settingsLoadedRef.current = null; // Reset for potential re-login
         return;
     }
     const entriesQuery = query(collection(firestore, 'users', user.uid, 'calendar_entries'));
@@ -292,17 +305,21 @@ export default function CentseiDashboard() {
     
     const settingsDocRef = doc(firestore, 'users', user.uid);
     const unsubSettings = onSnapshot(settingsDocRef, (doc) => {
+        // Prevent infinite loop by only setting state once per user login
+        if (settingsLoadedRef.current === user.uid) return;
+
         const settings = doc.data()?.settings;
         if (settings) {
             if (settings.rolloverPreference) setRolloverPreference(settings.rolloverPreference);
             if (settings.timezone) setTimezone(settings.timezone);
             if (settings.notificationsEnabled !== undefined) setNotificationsEnabled(settings.notificationsEnabled);
             if (settings.initialBalance !== undefined) setInitialBalance(settings.initialBalance);
+            settingsLoadedRef.current = user.uid; // Mark as loaded
         }
     });
 
     const unsubEntries = onSnapshot(entriesQuery, snapshot => {
-        const cloudEntries = snapshot.docs.map(d => ({...d.data(), id: d.id } as Entry));
+        const cloudEntries = snapshot.docs.map(d => ({...d.data(), id: d.id } as MasterEntry));
         setEntries(cloudEntries);
     });
 
@@ -342,8 +359,8 @@ export default function CentseiDashboard() {
   }, [entries, timezone]);
 
   const payPeriods = useMemo(
-    () => buildPayPeriods(allGeneratedEntries, 1),
-    [allGeneratedEntries]
+    () => buildPayPeriods(allGeneratedEntries, 1, timezone),
+    [allGeneratedEntries, timezone]
   );
   
   const activePeriodIndex = useMemo(() => {
@@ -380,87 +397,38 @@ export default function CentseiDashboard() {
     }
   };
 
-  const updateSeries = async (id: string, fullEntryData: any) => {
-    const masterEntry = entries.find(e => e.id === id);
-    if (!masterEntry) return;
-
-    const cleanedExceptions: typeof masterEntry.exceptions = {};
-    if (masterEntry.exceptions) {
-      for (const [date, ex] of Object.entries(masterEntry.exceptions)) {
-        if (ex && !ex.movedTo && !ex.movedFrom) {
-          cleanedExceptions[date] = ex;
-        }
-      }
-    }
-
-    const seriesData = {
-      ...fullEntryData,
-      id: undefined, // Don't save ID in the document body
-      exceptions: cleanedExceptions,
-      recurrenceCount: fullEntryData.recurrenceCount || masterEntry.recurrenceCount
-    };
-
-    if (user) {
-      await updateDoc(doc(firestore, 'users', user.uid, 'calendar_entries', id), stripUndefined({ ...seriesData, updated_at: serverTimestamp() }));
-    } else {
-      setEntries(prev => prev.map(e => (e.id === id ? { ...e, ...seriesData, id } : e)));
-    }
-  };
-
-
   const handleSaveEntry = async (
-      entryToSave: Omit<Entry, 'id' | 'date'> & { id?: string; date: Date; originalDate?: string },
-      isSeriesUpdate = false
-  ) => {
+    entryToSave: Omit<Entry, 'id' | 'date'> & { id?: string; date: Date; originalDate?: string },
+    isSeriesUpdate = false
+) => {
     const { originalDate, ...data } = entryToSave;
     const masterId = data.id ? getOriginalIdFromInstance(data.id) : undefined;
     const masterEntry = masterId ? entries.find(e => e.id === masterId) : undefined;
     
-    if (masterEntry && masterEntry.recurrence !== 'none' && !isSeriesUpdate && data.id) {
+    // Check if we need to show the update dialog for recurring entries
+    if (masterEntry && masterEntry.recurrence !== 'none' && !isSeriesUpdate && !updateRequest) {
         setUpdateRequest({ entry: entryToSave, isSeries: false });
         return;
     }
     
-    setUpdateRequest(null);
+    setUpdateRequest(null); // Clear the request once we proceed
 
-    const saveData: any = { ...data };
+    const saveData = { ...data };
     if (saveData.date) saveData.date = format(saveData.date, 'yyyy-MM-dd');
     if (saveData.recurrenceEndDate) saveData.recurrenceEndDate = format(saveData.recurrenceEndDate, 'yyyy-MM-dd');
     
     if (masterId && masterEntry) {
+        let updatedEntry: MasterEntry;
         if (isSeriesUpdate) {
-            await updateSeries(masterId, saveData);
-        } else { // Single instance update
-             if (masterEntry.recurrence === 'none') {
-                 await updateSeries(masterId, saveData);
-             } else {
-                 // It's a recurring entry, create an exception
-                const exceptions = { ...masterEntry.exceptions };
-                const instanceDate = originalDate || saveData.date;
-                
-                const exceptionData = {
-                  name: data.name === masterEntry.name ? undefined : data.name,
-                  amount: data.amount === masterEntry.amount ? undefined : data.amount,
-                  isPaid: data.isPaid,
-                  isAutoPay: data.isAutoPay === masterEntry.isAutoPay ? undefined : data.isAutoPay,
-                  category: data.category === masterEntry.category ? undefined : data.category,
-                };
-                
-                if(data.type === 'income') delete (exceptionData as any).category;
+            updatedEntry = updateSeries(masterEntry, saveData);
+        } else {
+            updatedEntry = updateSingleOccurrence(masterEntry, originalDate || saveData.date, saveData);
+        }
 
-                exceptions[instanceDate] = { ...exceptions[instanceDate], ...stripUndefined(exceptionData) };
-                
-                if(originalDate && originalDate !== saveData.date) {
-                    exceptions[originalDate] = { ...exceptions[originalDate], movedTo: saveData.date };
-                    exceptions[saveData.date] = { ...exceptions[saveData.date], ...stripUndefined(exceptionData), movedFrom: originalDate };
-                }
-                
-                if (user) {
-                    await updateDoc(doc(firestore, 'users', user.uid, 'calendar_entries', masterId), { exceptions: stripUndefined(exceptions), updated_at: serverTimestamp() });
-                } else {
-                    setEntries(prev => prev.map(e => e.id === masterId ? { ...e, exceptions: stripUndefined(exceptions) } : e));
-                }
-            }
+        if (user) {
+            await updateDoc(doc(firestore, 'users', user.uid, 'calendar_entries', masterId), stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
+        } else {
+            setEntries(prev => prev.map(e => (e.id === masterId ? updatedEntry : e)));
         }
     } else { // New entry
         const newEntryData = { ...saveData, created_at: serverTimestamp(), updated_at: serverTimestamp() };
@@ -475,13 +443,16 @@ export default function CentseiDashboard() {
     toast({ title: 'Entry Saved', description: `Your ${data.type} has been saved.` });
     setEntryDialogOpen(false);
     setEditingEntry(null);
-  };
-  
+};
+
+
   const handleCopyEntry = (entry: Entry) => {
+    if (!selectedDate) return;
     const copy = { ...entry, id: '', date: format(selectedDate, 'yyyy-MM-dd') };
-    setEditingEntry(copy);
+    setEditingEntry(copy as Entry);
     setEntryDialogOpen(true);
   }
+
 
   const handleDeleteConfirmation = (instanceId: string) => {
     const masterId = getOriginalIdFromInstance(instanceId);
@@ -612,39 +583,17 @@ export default function CentseiDashboard() {
     const masterEntry = entries.find(e => e.id === masterId);
     if (!masterEntry) return;
 
-    let updatedEntry: Entry;
+    let updatedEntry: MasterEntry;
 
-    if (moveAll) {
-        // Create a cleaned exceptions object, removing any prior moves.
-        const cleanedExceptions: typeof masterEntry.exceptions = {};
-        if (masterEntry.exceptions) {
-            for (const [date, ex] of Object.entries(masterEntry.exceptions)) {
-                if (ex && !ex.movedTo && !ex.movedFrom) {
-                    cleanedExceptions[date] = ex;
-                }
-            }
-        }
-        // Update the base entry date and use the cleaned exceptions
-        updatedEntry = { ...masterEntry, date: newDate, exceptions: cleanedExceptions };
+    if (masterEntry.recurrence === 'none') {
+      updatedEntry = moveOneTime(masterEntry, entryToMove.date, newDate);
+    } else if (moveAll) {
+      updatedEntry = moveSeries(masterEntry, newDate);
     } else {
-        // Create an exception for a single move
-        const exceptions = { ...masterEntry.exceptions };
-        const oldDate = entryToMove.date;
-        
-        // This is what the instance will look like on its new date
-        const newInstanceData: Partial<Entry> = {
-          name: entryToMove.name,
-          amount: entryToMove.amount,
-          category: entryToMove.category,
-          isPaid: entryToMove.isPaid,
-          isAutoPay: entryToMove.isAutoPay,
-          movedFrom: oldDate
-        };
-        
-        exceptions[oldDate] = { ...(exceptions[oldDate] || {}), movedTo: newDate };
-        exceptions[newDate] = stripUndefined(newInstanceData);
-        updatedEntry = { ...masterEntry, exceptions: stripUndefined(exceptions) };
+      updatedEntry = moveSingleOccurrence(masterEntry, entryToMove.date, newDate);
     }
+     
+    validateMaster(updatedEntry);
 
     if (user && firestore) {
       const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
@@ -657,6 +606,24 @@ export default function CentseiDashboard() {
     toast({ title: 'Entry Moved', description: `Moved to ${format(parseDateInTimezone(newDate, timezone), 'MMM d, yyyy')}` });
   };
   
+  const handleInstancePaidToggle = async (instanceId: string, isPaid: boolean) => {
+    const masterId = getOriginalIdFromInstance(instanceId);
+    const masterEntry = entries.find(e => e.id === masterId);
+    if (!masterEntry) return;
+    
+    const instanceDate = instanceId.substring(masterId.length + 1);
+    
+    // Create an exception for this one instance
+    const updatedEntry = updateSingleOccurrence(masterEntry, instanceDate, { isPaid });
+    
+    if (user && firestore) {
+        const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
+        await updateDoc(docRef, stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
+    } else {
+        setEntries(prev => prev.map(e => (e.id === masterId ? updatedEntry : e)));
+    }
+  };
+
   const handleSaveGoal = async (goal: Omit<Goal, 'id'> & { id?: string }) => {
     if (user) {
         if (goal.id) {
@@ -698,45 +665,38 @@ export default function CentseiDashboard() {
   }
 
   const handleReorder = (orderedEntries: Entry[]) => {
+    
+    const masterUpdates = new Map<string, MasterEntry>();
+
+    orderedEntries.forEach((entry, index) => {
+      const masterId = getOriginalIdFromInstance(entry.id);
+      
+      // Get the latest version of the master entry, either from the map or from the state
+      const masterEntry = masterUpdates.get(masterId) || entries.find(e => e.id === masterId);
+      if (!masterEntry) return;
+
+      const updatedMaster = { ...masterEntry, exceptions: { ...(masterEntry.exceptions || {}) } };
+      
+      // Update the order for the specific instance date
+      updatedMaster.exceptions[entry.date] = { 
+        ...updatedMaster.exceptions[entry.date], 
+        order: index 
+      };
+      
+      masterUpdates.set(masterId, stripUndefined(updatedMaster));
+    });
+
     if (user) {
         const batch = writeBatch(firestore);
-        const masterUpdates = new Map<string, any>();
-        
-        orderedEntries.forEach((entry, index) => {
-            const masterId = getOriginalIdFromInstance(entry.id);
-            const masterEntry = entries.find(e => e.id === masterId);
-            if (!masterEntry) return;
-
-            const currentUpdates = masterUpdates.get(masterId) || { exceptions: { ...masterEntry.exceptions } };
-            
-            currentUpdates.exceptions[entry.date] = { ...currentUpdates.exceptions[entry.date], order: index };
-            masterUpdates.set(masterId, currentUpdates);
-        });
-
-        for (const [id, updates] of masterUpdates.entries()) {
+        masterUpdates.forEach((updatedMaster, id) => {
             const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', id);
-            batch.update(docRef, { exceptions: stripUndefined(updates.exceptions) });
-        }
+            batch.update(docRef, { exceptions: updatedMaster.exceptions });
+        });
         batch.commit();
     } else {
-      const masterUpdates: { [key: string]: { exceptions: any, isNew?: boolean } } = {};
-
-      orderedEntries.forEach((entry, index) => {
-          const masterId = getOriginalIdFromInstance(entry.id);
-          if (!masterUpdates[masterId]) {
-              const masterEntry = entries.find(e => e.id === masterId);
-              masterUpdates[masterId] = { exceptions: { ...masterEntry?.exceptions } };
-          }
-          masterUpdates[masterId].exceptions[entry.date] = { ...(masterUpdates[masterId].exceptions[entry.date] || {}), order: index };
-      });
-      
-      const newEntries = entries.map(e => {
-          if (masterUpdates[e.id]) {
-              return { ...e, exceptions: masterUpdates[e.id].exceptions };
-          }
-          return e;
-      });
-      setEntries(newEntries);
+       setEntries(prevEntries => {
+          return prevEntries.map(e => masterUpdates.get(e.id) || e);
+       });
     }
 
     toast({ title: 'Order Saved', description: 'Your new entry order has been saved.' });
@@ -749,28 +709,36 @@ export default function CentseiDashboard() {
     setEntryDialogOpen(true);
   };
   
+
   const openDayEntriesDialog = (holidays: Holiday[], dayBirthdays: Birthday[]) => {
     setDayEntriesDialogOpen(true);
   };
 
   const handleEditFromDayDialog = (entry: Entry) => {
     setDayEntriesDialogOpen(false);
+    // Find the master to make sure we have the full, non-overridden entry data
     const originalEntryId = getOriginalIdFromInstance(entry.id);
-    const originalEntry = entries.find(e => e.id === originalEntryId) || entry;
-    const instanceWithDate = { ...originalEntry, date: entry.date, id: entry.id };
-    setEditingEntry(instanceWithDate);
+    const masterEntry = entries.find(e => e.id === originalEntryId);
+    if (!masterEntry) {
+        console.error("Could not find master entry for editing:", entry.id);
+        return;
+    }
+    // Create the instance object for the dialog, combining master with instance-specific details
+    const instanceForEdit = { ...masterEntry, ...entry };
+    setEditingEntry(instanceForEdit);
     setEntryDialogOpen(true);
   };
   
   const handleAddFromDayDialog = () => {
+    if (!selectedDate) return;
     setDayEntriesDialogOpen(false);
     openNewEntryDialog(selectedDate);
   }
-  
+
   const budgetScore = useMemo(() => {
       if (allGeneratedEntries.length === 0) return null;
-      return calculateBudgetScore(allGeneratedEntries);
-  }, [allGeneratedEntries]);
+      return calculateBudgetScore(allGeneratedEntries, timezone);
+  }, [allGeneratedEntries, timezone]);
 
   const dojoRank = useMemo(() => {
     const primaryGoal = goals.length > 0 ? goals[0] : null;
@@ -778,7 +746,7 @@ export default function CentseiDashboard() {
   }, [goals]);
   
   const seasonalEvents = useMemo(() => {
-    const now = new Date();
+    const now = parseDateInTimezone(new Date(), timezone);
     const next30Days = add(now, {days: 30});
     const holidays = getHolidaysForYear(getYear(now));
     
@@ -808,7 +776,7 @@ export default function CentseiDashboard() {
     })
     
     return events;
-  }, [birthdays]);
+  }, [birthdays, timezone]);
   
 
   useEffect(() => {
@@ -947,13 +915,17 @@ export default function CentseiDashboard() {
         <CentseiCalendar
           entries={entries}
           generatedEntries={allGeneratedEntries}
-          setEntries={setEntries}
           timezone={timezone}
           openNewEntryDialog={openNewEntryDialog}
           setEditingEntry={setEditingEntry}
+          selectedDate={selectedDate}
           setSelectedDate={setSelectedDate}
           setEntryDialogOpen={setEntryDialogOpen}
-          openDayEntriesDialog={openDayEntriesDialog}
+          openDayEntriesDialog={(holidays, birthdays) => {
+            if(holidays.length > 0 || birthdays.length > 0 || allGeneratedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), selectedDate || new Date())).length > 0) {
+              setDayEntriesDialogOpen(true);
+            }
+          }}
           isReadOnly={false}
           payPeriods={payPeriods}
           isSelectionMode={isSelectionMode}
@@ -969,7 +941,7 @@ export default function CentseiDashboard() {
             if (entry.recurrence === 'none') {
                 handleMoveEntry(entry, newDate, false);
             } else {
-                setMoveRequest({entry, newDate});
+                setMoveRequest({ entry, newDate });
             }
           }}
           birthdays={birthdays}
@@ -981,11 +953,12 @@ export default function CentseiDashboard() {
           onDojoInfoClick={() => setDojoInfoOpen(true)}
           activePeriodIndex={activePeriodIndex}
           initialBalance={initialBalance}
+          onInstancePaidToggle={handleInstancePaidToggle}
         />
         
         {!isMobile && (
             <Button 
-                onClick={() => openNewEntryDialog(selectedDate)} 
+                onClick={() => openNewEntryDialog(selectedDate ?? new Date())} 
                 className="fixed bottom-8 right-8 h-16 w-16 rounded-full shadow-xl"
             >
                 <Plus className="h-8 w-8" />
@@ -1001,7 +974,7 @@ export default function CentseiDashboard() {
         onCopy={handleCopyEntry}
         onDelete={handleDeleteConfirmation}
         entry={editingEntry}
-        selectedDate={selectedDate}
+        selectedDate={selectedDate || new Date()}
         timezone={timezone}
       />
       <SettingsDialog
@@ -1022,7 +995,7 @@ export default function CentseiDashboard() {
         initialBalance={initialBalance}
         onInitialBalanceChange={setInitialBalance}
       />
-       <DayEntriesDialog
+       {selectedDate && <DayEntriesDialog
         isOpen={isDayEntriesDialogOpen}
         onClose={() => setDayEntriesDialogOpen(false)}
         date={selectedDate}
@@ -1037,7 +1010,7 @@ export default function CentseiDashboard() {
         onEditEntry={handleEditFromDayDialog}
         onDeleteEntry={handleDeleteConfirmation}
         onReorder={handleReorder}
-      />
+      />}
       <MonthlyBreakdownDialog
         isOpen={isMonthlyBreakdownOpen}
         onClose={() => setMonthlyBreakdownOpen(false)}
@@ -1092,6 +1065,7 @@ export default function CentseiDashboard() {
             rank={dojoRank}
             onInfoClick={() => setDojoInfoOpen(true)}
         />
+
 
       <AlertDialog open={!!updateRequest || !!entryToDelete || !!moveRequest} onOpenChange={(open) => {
         if (!open) {

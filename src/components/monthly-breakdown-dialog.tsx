@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/accordion";
 import { format, isSameMonth } from 'date-fns';
 import { type Entry, type BillCategory, BillCategories, CategoryEmojis, CategoryDisplayPreference } from '@/lib/types';
-import { formatCurrency, parseDateInTimezone } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import {
   ChartContainer,
   ChartTooltip,
@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/chart';
 import { PieChart, Pie, Cell, Tooltip } from 'recharts';
 import useLocalStorage from '@/hooks/use-local-storage';
+import { parseDateInTimezone } from '@/lib/time';
 
 type MonthlyBreakdownDialogProps = {
   isOpen: boolean;

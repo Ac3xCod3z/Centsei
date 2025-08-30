@@ -12,6 +12,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+
 import { ScrollArea } from './ui/scroll-area';
 import { cn, formatCurrency } from '@/lib/utils';
 import type { PayPeriod } from '@/lib/pay-periods';
