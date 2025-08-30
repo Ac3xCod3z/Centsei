@@ -6,9 +6,10 @@ import { useState, useEffect, useRef } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Sparkles, Loader2, Bell, BellOff, Share2, Check, Copy, Moon, Sun, Repeat, Download, Upload, Text, Smile, Cake } from "lucide-react";
+import { Sparkles, Loader2, Bell, BellOff, Share2, Check, Copy, Moon, Sun, Repeat, Download, Upload, Text, Smile, Cake, Calendar as CalendarIcon, Trash2, Plus } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useAuth } from './auth-provider';
+import { add, format } from "date-fns";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -40,16 +41,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import type { Entry, RolloverPreference, CategoryDisplayPreference, Goal, Birthday } from "@/lib/types";
+import type { Entry, RolloverPreference, CategoryDisplayPreference, Goal, Birthday, MasterEntry } from "@/lib/types";
 import { getRolloverRecommendation } from "@/ai/flows/rollover-optimization";
 import { useToast } from "@/hooks/use-toast";
 import { timezones } from "@/lib/timezones";
 import { ScrollArea } from "./ui/scroll-area";
 import useLocalStorage from "@/hooks/use-local-storage";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
-import { firestore } from "@/lib/firebase";
-import { writeBatch, collection, doc, updateDoc, serverTimestamp } from "firebase/firestore";
-
+import { getCalendarAccessToken } from "@/lib/calendar-auth";
+import { exportEntries, createCentseiCalendar, deleteCentseiEvents, type CentseiEntryForCalendar } from "@/lib/google-calendar-helpers";
+import { parseDateInTimezone } from "@/lib/time";
+import { generateIcsContent } from "@/lib/ics-generator";
 
 const formSchema = z.object({
   incomeLevel: z.coerce.number().positive({ message: "Income must be a positive number." }),
@@ -65,13 +67,18 @@ type SettingsDialogProps = {
   onTimezoneChange: (timezone: string) => void;
   onNotificationsToggle: (enabled: boolean) => void;
   onManageBirthdays: () => void;
-  entries: Entry[];
-  onEntriesChange: (entries: Entry[]) => void;
+  entries: MasterEntry[];
+  onEntriesChange: (entries: MasterEntry[]) => void;
   goals: Goal[];
   onGoalsChange: (goals: Goal[]) => void;
   birthdays: Birthday[];
   onBirthdaysChange: (birthdays: Birthday[]) => void;
 };
+
+function getOriginalIdFromInstance(key: string) {
+  const m = key.match(/^(.*)-(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? m[1] : key;
+}
 
 export function SettingsDialog({
   isOpen,
@@ -89,7 +96,6 @@ export function SettingsDialog({
   birthdays,
   onBirthdaysChange,
 }: SettingsDialogProps) {
-  const { user } = useAuth();
   const [recommendation, setRecommendation] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
@@ -101,22 +107,8 @@ export function SettingsDialog({
   const { setTheme, theme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const updateFirestoreSettings = async (settings: any) => {
-    if (user) {
-      try {
-        const userDocRef = doc(firestore, "users", user.uid);
-        await updateDoc(userDocRef, {
-          "settings": settings,
-          updated_at: serverTimestamp()
-        });
-      } catch (e) {
-         // If settings update fails, it could be because the user doc doesn't exist.
-         // This is a good place to create it with setDoc and merge:true if needed,
-         // but for now we'll just log the error.
-         console.error("Failed to update settings in Firestore:", e);
-      }
-    }
-  };
+  const [isCalendarLoading, setCalendarLoading] = useState(false);
+  const [centseiCalendarId, setCentseiCalendarId] = useLocalStorage<string | null>('centseiCalendarId', null);
 
   useEffect(() => {
     if (isOpen) {
@@ -127,6 +119,132 @@ export function SettingsDialog({
         setHasCopied(false);
     }
   }, [isOpen]);
+  
+  const getUpcomingOccurrences = (windowDays = 90): CentseiEntryForCalendar[] => {
+    const now = new Date();
+    const future = add(now, { days: windowDays });
+    
+    return entries.flatMap(entry => {
+        const occurrences: CentseiEntryForCalendar[] = [];
+        let currentDate = parseDateInTimezone(entry.date, timezone);
+        
+        if (entry.recurrence !== 'none') {
+            const interval = entry.recurrence === 'weekly' ? { weeks: 1 } :
+                             entry.recurrence === 'bi-weekly' ? { weeks: 2 } :
+                             entry.recurrence === 'monthly' ? { months: 1 } :
+                             entry.recurrence === 'bimonthly' ? { months: 2 } :
+                             entry.recurrence === '3months' ? { months: 3 } :
+                             entry.recurrence === '6months' ? { months: 6 } :
+                             { years: 1 };
+            
+            while (currentDate < now) {
+                currentDate = add(currentDate, interval);
+            }
+        }
+        
+        for (let i = 0; currentDate < future && i < 365; i++) {
+            const dateStr = format(currentDate, 'yyyy-MM-dd');
+            if (currentDate >= now) {
+                occurrences.push({
+                    id: getOriginalIdFromInstance(entry.id),
+                    name: entry.name,
+                    date: dateStr,
+                    recurrence: entry.recurrence,
+                    amount: entry.amount,
+                    note: `${entry.type === 'bill' ? 'Bill' : 'Income'}: ${format(entry.amount, 'C')}`
+                });
+            }
+            if (entry.recurrence === 'none') break;
+
+             const interval = entry.recurrence === 'weekly' ? { weeks: 1 } :
+                             entry.recurrence === 'bi-weekly' ? { weeks: 2 } :
+                             entry.recurrence === 'monthly' ? { months: 1 } :
+                             entry.recurrence === 'bimonthly' ? { months: 2 } :
+                             entry.recurrence === '3months' ? { months: 3 } :
+                             entry.recurrence === '6months' ? { months: 6 } :
+                             { years: 1 };
+            currentDate = add(currentDate, interval);
+        }
+        return occurrences;
+    });
+  };
+
+  const handlePushToCalendar = async () => {
+    setCalendarLoading(true);
+    const accessToken = await getCalendarAccessToken({ full: !!centseiCalendarId });
+    if (!accessToken) {
+      // Guest mode or permission denied, fallback to ICS
+      try {
+        const occurrences = getUpcomingOccurrences();
+        const icsContent = generateIcsContent(occurrences, timezone);
+        const blob = new Blob([icsContent], { type: 'text/calendar' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'centsei_calendar.ics';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast({ title: "ICS File Downloaded", description: "Import this file into your calendar application." });
+      } catch (e) {
+        toast({ title: "Export Failed", description: "Could not generate ICS file.", variant: "destructive" });
+      }
+      setCalendarLoading(false);
+      return;
+    }
+
+    try {
+      const occurrences = getUpcomingOccurrences();
+      await exportEntries(
+        accessToken,
+        occurrences,
+        { timezone, calendarId: centseiCalendarId || 'primary' }
+      );
+      toast({ title: "Export Successful", description: `Pushed ${occurrences.length} events to your calendar.` });
+    } catch (error: any) {
+        console.error("Calendar export failed:", error);
+        toast({ title: "Export Failed", description: error.message || "Could not push events to Google Calendar.", variant: "destructive" });
+    } finally {
+        setCalendarLoading(false);
+    }
+  };
+
+  const handleCreateCalendar = async () => {
+    setCalendarLoading(true);
+    try {
+        const accessToken = await getCalendarAccessToken({ full: true });
+        if (!accessToken) throw new Error("Could not get authorization.");
+        
+        const newCalendarId = await createCentseiCalendar(accessToken, timezone);
+        setCentseiCalendarId(newCalendarId);
+        toast({ title: "Calendar Created!", description: "A 'Centsei' calendar has been added to your Google account." });
+    } catch (error: any) {
+        toast({ title: "Creation Failed", description: error.message || "Could not create a dedicated calendar.", variant: "destructive" });
+    } finally {
+        setCalendarLoading(false);
+    }
+  };
+
+  const handleCleanCalendar = async () => {
+     setCalendarLoading(true);
+     try {
+        if (!centseiCalendarId) {
+            toast({ title: "No Calendar Found", description: "A dedicated Centsei calendar must be created first.", variant: "destructive" });
+            return;
+        }
+        const accessToken = await getCalendarAccessToken({ full: true });
+        if (!accessToken) throw new Error("Could not get authorization.");
+        
+        const count = await deleteCentseiEvents(accessToken, centseiCalendarId);
+        toast({ title: "Cleanup Successful", description: `Removed ${count} events from your Centsei calendar.` });
+     } catch (error: any) {
+        toast({ title: "Cleanup Failed", description: error.message || "Could not remove exported events.", variant: "destructive" });
+     } finally {
+        setCalendarLoading(false);
+     }
+  };
+
 
   const handleExportData = () => {
     try {
@@ -165,39 +283,10 @@ export function SettingsDialog({
                 throw new Error("File is not readable");
             }
             const importedData = JSON.parse(text);
-
-            if (user) {
-              const batch = writeBatch(firestore);
-              if (importedData.entries && Array.isArray(importedData.entries)) {
-                importedData.entries.forEach((entry: any) => {
-                  const { id, ...entryData } = entry;
-                  // Generate a new doc ref for each entry to avoid conflicts
-                  const docRef = doc(collection(firestore, 'users', user.uid, 'calendar_entries'));
-                  batch.set(docRef, entryData);
-                });
-              }
-              if (importedData.goals && Array.isArray(importedData.goals)) {
-                  importedData.goals.forEach((goal: any) => {
-                    const { id, ...goalData } = goal;
-                    const docRef = doc(collection(firestore, 'users', user.uid, 'goals'));
-                    batch.set(docRef, goalData);
-                  });
-              }
-               if (importedData.birthdays && Array.isArray(importedData.birthdays)) {
-                  importedData.birthdays.forEach((bday: any) => {
-                    const { id, ...bdayData } = bday;
-                    const docRef = doc(collection(firestore, 'users', user.uid, 'birthdays'));
-                    batch.set(docRef, bdayData);
-                  });
-              }
-              await batch.commit();
-            } else {
-              // Logic for local import
-              if (importedData.entries && Array.isArray(importedData.entries)) onEntriesChange(importedData.entries);
-              if (importedData.goals && Array.isArray(importedData.goals)) onGoalsChange(importedData.goals);
-              if (importedData.birthdays && Array.isArray(importedData.birthdays)) onBirthdaysChange(importedData.birthdays);
-            }
             
+            if (importedData.entries && Array.isArray(importedData.entries)) onEntriesChange(importedData.entries);
+            if (importedData.goals && Array.isArray(importedData.goals)) onGoalsChange(importedData.goals);
+            if (importedData.birthdays && Array.isArray(importedData.birthdays)) onBirthdaysChange(importedData.birthdays);
             if(importedData.rolloverPreference) onRolloverPreferenceChange(importedData.rolloverPreference);
             if(importedData.timezone) onTimezoneChange(importedData.timezone);
             
@@ -212,13 +301,6 @@ export function SettingsDialog({
         }
     };
     reader.readAsText(file);
-  };
-
-  const handleNotificationToggle = () => {
-    onNotificationsToggle(!notificationsEnabled);
-    if(user) {
-        updateFirestoreSettings({ notificationsEnabled: !notificationsEnabled, timezone });
-    }
   };
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -266,16 +348,9 @@ export function SettingsDialog({
         setTimeout(() => setHasCopied(false), 2000); // Reset icon after 2s
     }, (err) => {
         console.error('Could not copy text: ', err);
-        toast({ title: "Copy Failed", description: "Could not copy the link to your clipboard.", variant: "destructive" });
+        toast({ title: "Copy Failed", description: "Could not copy link. Your browser may be blocking this action for security reasons.", variant: "destructive" });
     });
   };
-
-  const handleTimezoneChange = (tz: string) => {
-      onTimezoneChange(tz);
-      if (user) {
-          updateFirestoreSettings({ timezone: tz, notificationsEnabled });
-      }
-  }
 
   if (!isOpen) {
     return null;
@@ -335,6 +410,26 @@ export function SettingsDialog({
                         <Cake className="mr-2 h-4 w-4" /> Manage Birthdays
                     </Button>
                </div>
+               
+              <Separator />
+              
+              <div className="space-y-2">
+                  <h3 className="font-semibold">Google Calendar</h3>
+                   <p className="text-sm text-muted-foreground">Push your upcoming bills and income to your Google Calendar. Guests can download an .ics file.</p>
+                   <Button onClick={handlePushToCalendar} variant="outline" className="w-full" disabled={isCalendarLoading}>
+                      {isCalendarLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarIcon className="mr-2 h-4 w-4" />}
+                      {isCalendarLoading ? 'Pushing...' : 'Push to Calendar'}
+                   </Button>
+                   <div className="grid grid-cols-2 gap-2">
+                        <Button onClick={handleCreateCalendar} variant="outline" disabled={isCalendarLoading || !!centseiCalendarId}>
+                            <Plus className="mr-2 h-4 w-4" /> Create Calendar
+                        </Button>
+                        <Button onClick={handleCleanCalendar} variant="destructive" disabled={isCalendarLoading || !centseiCalendarId}>
+                           <Trash2 className="mr-2 h-4 w-4" /> Clean Calendar
+                        </Button>
+                   </div>
+              </div>
+
 
               <Separator />
               
@@ -383,7 +478,7 @@ export function SettingsDialog({
                   <h3 className="font-semibold">Notifications</h3>
                   <p className="text-sm text-muted-foreground">Get reminders for your upcoming bills, delivered right to your device.</p>
                   <Button 
-                      onClick={handleNotificationToggle} 
+                      onClick={() => onNotificationsToggle(!notificationsEnabled)} 
                       className="w-full btn-primary-hover"
                       variant={notificationsEnabled ? 'secondary' : 'default'}
                       disabled={notificationPermission === 'denied'}
@@ -401,7 +496,7 @@ export function SettingsDialog({
               <div className="space-y-2">
                 <Label htmlFor="timezone" className="font-semibold">Timezone</Label>
                 <p className="text-sm text-muted-foreground">Select your local timezone to ensure dates are handled correctly.</p>
-                <Select onValueChange={handleTimezoneChange} defaultValue={timezone}>
+                <Select onValueChange={onTimezoneChange} defaultValue={timezone}>
                   <SelectTrigger id="timezone" className="w-full">
                     <SelectValue placeholder="Select a timezone" />
                   </SelectTrigger>

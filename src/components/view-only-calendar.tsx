@@ -1,5 +1,4 @@
-
-
+// src/components/view-only-calendar.tsx
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
@@ -7,27 +6,165 @@ import { useSearchParams } from "next/navigation";
 import { useMedia } from "react-use";
 import Image from 'next/image';
 
-import type { Entry, RolloverPreference, WeeklyBalances, Birthday, Holiday } from "@/lib/types";
+import type { Entry, RolloverPreference, Birthday, Holiday, MasterEntry } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Menu } from "lucide-react";
-import { format, subMonths, startOfMonth, endOfMonth, getDay, startOfWeek, endOfWeek, isSameDay, addMonths } from "date-fns";
+import { Menu, AlertCircle } from "lucide-react";
+import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDay, add, setDate, getDate, startOfWeek, endOfWeek, eachWeekOfInterval, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, isWithinInterval, isAfter, max, parseISO, getYear } from "date-fns";
+import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShieldAlert } from "lucide-react";
-import { parseDateInTimezone } from "@/lib/utils";
-import { generateRecurringInstances, computeWeeklyBalances } from "@/lib/entries";
+import { buildPayPeriods } from "@/lib/pay-periods";
+import { parseDateInTimezone } from "@/lib/time";
+
 
 type SharedData = {
-  entries: Entry[];
+  entries: MasterEntry[];
   rolloverPreference: RolloverPreference;
   timezone: string;
   goals: [],
   birthdays: Birthday[],
+  initialBalance: number,
 };
 
-// Recurrence expansion moved to @/lib/entries
+const generateRecurringInstances = (entry: MasterEntry, start: Date, end: Date, timezone: string): Entry[] => {
+  if (!entry.date) return [];
+
+  const instanceMap = new Map<string, Entry>();
+  
+  const anchorDate = parseDateInTimezone(entry.date, timezone);
+  const floorDate = start; // Simplified: start of the viewing window
+  
+  const recurrenceEndDate = entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null;
+
+  const createInstance = (date: Date): Entry => {
+    const dateStr = format(date, 'yyyy-MM-dd');
+    const exception = entry.exceptions?.[dateStr];
+
+    const today = parseDateInTimezone(new Date(), timezone);
+    const instanceDate = date; // Already a zoned date object
+    const isPastOrToday = !isAfter(instanceDate, today);
+
+    let isPaid = false;
+    if (exception?.isPaid !== undefined) {
+      isPaid = exception.isPaid;
+    } else if (entry.recurrence === 'none') {
+      isPaid = entry.isPaid ?? false;
+    } else {
+      const isAuto = entry.isAutoPay;
+      if (isAuto) {
+        isPaid = isPastOrToday;
+      } else {
+        isPaid = false;
+      }
+    }
+
+    return {
+      ...entry,
+      date: dateStr,
+      id: `${entry.id}-${dateStr}`,
+      isPaid,
+      order: exception?.order ?? entry.order,
+      name: exception?.name ?? entry.name,
+      amount: exception?.amount ?? entry.amount,
+      category: exception?.category ?? entry.category,
+      isAutoPay: entry.isAutoPay,
+    };
+  };
+  
+  if (entry.recurrence === 'none') {
+    if (isWithinInterval(anchorDate, { start: floorDate, end })) {
+      const instance = createInstance(anchorDate);
+      instanceMap.set(entry.date, instance);
+    }
+  } else {
+    let currentDate = anchorDate;
+    
+    // Fast-forward to the first relevant date
+    if (isBefore(currentDate, floorDate)) {
+        if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
+            const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
+            while (isBefore(currentDate, floorDate)) {
+              currentDate = add(currentDate, { weeks: weeksToAdd });
+            }
+        } else {
+            const interval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
+            if (interval) {
+               while (isBefore(currentDate, floorDate)) {
+                  currentDate = add(currentDate, { months: interval });
+               }
+            }
+        }
+    }
+    
+    let occurrenceCount = 0;
+    while (isBefore(currentDate, end) || isSameDay(currentDate, end)) {
+      if (recurrenceEndDate && isAfter(currentDate, recurrenceEndDate)) break;
+      if (entry.recurrenceCount && occurrenceCount >= entry.recurrenceCount) break;
+
+      if (isWithinInterval(currentDate, { start: floorDate, end })) {
+        const dateStr = format(currentDate, 'yyyy-MM-dd');
+        const instance = createInstance(currentDate);
+        instanceMap.set(dateStr, instance);
+      }
+      
+      occurrenceCount++;
+      
+      if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
+        const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
+        currentDate = add(currentDate, { weeks: weeksToAdd });
+      } else {
+        const recurrenceInterval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
+        if (recurrenceInterval) {
+          const nextMonthDate = add(anchorDate, { months: recurrenceInterval * occurrenceCount });
+          const originalDay = getDate(anchorDate);
+          const lastDayInNextMonth = lastDayOfMonth(nextMonthDate).getDate();
+          currentDate = setDate(nextMonthDate, Math.min(originalDay, lastDayInNextMonth));
+        } else {
+          break; 
+        }
+      }
+    }
+  }
+
+  // Handle exceptions (moves, deletions, modifications)
+  if (entry.exceptions) {
+    Object.entries(entry.exceptions).forEach(([dateStr, exception]) => {
+      if (!exception) return;
+
+      // If an instance was moved FROM this date, remove it
+      if (exception.movedTo) {
+        instanceMap.delete(dateStr);
+      }
+      
+      // If an instance was deleted, remove it
+      if (exception.movedFrom === 'deleted') {
+        instanceMap.delete(dateStr);
+        return;
+      }
+
+      const exceptionDate = parseDateInTimezone(dateStr, timezone);
+      if (isWithinInterval(exceptionDate, { start, end })) {
+        const existingInstance = instanceMap.get(dateStr);
+        // If it's a modification of an existing instance
+        if (existingInstance) {
+          if (exception.isPaid !== undefined) existingInstance.isPaid = exception.isPaid;
+          if (exception.order !== undefined) existingInstance.order = exception.order;
+          if (exception.name) existingInstance.name = exception.name;
+          if (exception.amount) existingInstance.amount = exception.amount;
+        } 
+        // If it was moved TO this date, add it as a new instance
+        else if (exception.movedFrom && exception.movedFrom !== 'deleted') {
+          instanceMap.set(dateStr, createInstance(exceptionDate));
+        }
+      }
+    });
+  }
+
+  return Array.from(instanceMap.values());
+};
 
 
 export default function ViewOnlyCalendar() {
@@ -37,7 +174,6 @@ export default function ViewOnlyCalendar() {
   
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isMobileSheetOpen, setMobileSheetOpen] = useState(false);
-  const [weeklyBalances, setWeeklyBalances] = useState<WeeklyBalances>({});
 
   const isMobile = useMedia("(max-width: 1024px)", false);
 
@@ -54,6 +190,7 @@ export default function ViewOnlyCalendar() {
                 timezone: parsedData.timezone,
                 goals: parsedData.goals || [],
                 birthdays: parsedData.birthdays || [],
+                initialBalance: parsedData.initialBalance || 0,
             });
         } else {
             throw new Error("Invalid data structure");
@@ -79,47 +216,17 @@ export default function ViewOnlyCalendar() {
     return entries.flatMap((e) => generateRecurringInstances(e, viewStart, viewEnd, timezone));
   }, [data]);
   
-  useEffect(() => {
-    if (!data || allGeneratedEntries.length === 0) {
-      setWeeklyBalances({});
-      return;
-    }
-    const { rolloverPreference, timezone } = data;
-    const newWeeklyBalances = computeWeeklyBalances(allGeneratedEntries, timezone, rolloverPreference);
-    if (JSON.stringify(newWeeklyBalances) !== JSON.stringify(weeklyBalances)) {
-      setWeeklyBalances(newWeeklyBalances);
-    }
-  }, [allGeneratedEntries, data, weeklyBalances]);
+  const payPeriods = useMemo(
+    () => buildPayPeriods(allGeneratedEntries, 1, data?.timezone || 'UTC'),
+    [allGeneratedEntries, data?.timezone]
+  );
+  
+  const activePeriodIndex = useMemo(
+    () => payPeriods.findIndex(p => selectedDate >= p.start && selectedDate < p.end),
+    [payPeriods, selectedDate]
+  );
 
-  const weeklyTotals = useMemo(() => {
-    if (!data) {
-      return { income: 0, bills: 0, net: 0, startOfWeekBalance: 0, status: 0 };
-    }
-    const { timezone } = data;
-    const weekStart = startOfWeek(selectedDate);
-    const weekKey = format(weekStart, 'yyyy-MM-dd');
-    
-    const weekBalanceInfo = weeklyBalances[weekKey];
-    const startOfWeekBalance = weekBalanceInfo ? weekBalanceInfo.start : 0;
-    const endOfWeekBalance = weekBalanceInfo ? weekBalanceInfo.end : 0;
-
-    const weekEntries = allGeneratedEntries.filter(e => {
-        const entryDate = parseDateInTimezone(e.date, timezone);
-        return entryDate >= weekStart && entryDate <= endOfWeek(weekStart);
-    });
-
-    const weeklyIncome = weekEntries.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
-    const weeklyBills = weekEntries.filter(e => e.type === 'bill').reduce((sum, e) => sum + e.amount, 0);
-
-    return {
-        income: weeklyIncome,
-        bills: weeklyBills,
-        net: endOfWeekBalance,
-        startOfWeekBalance: startOfWeekBalance,
-        status: weeklyIncome - weeklyBills,
-    };
-  }, [data, allGeneratedEntries, selectedDate, weeklyBalances]);
-
+  const initialBalance = data?.initialBalance ?? 0;
 
   if (error) {
     return (
@@ -150,15 +257,16 @@ export default function ViewOnlyCalendar() {
             </SheetTrigger>
             <SheetContent side="right" className="w-[300px] sm:w-[400px] p-0 flex flex-col">
               <SheetHeader className="p-4 md:p-6 border-b shrink-0">
-                <SheetTitle>Summary</SheetTitle>
+                <SheetTitle>Pay Period</SheetTitle>
                 <SheetDescription>
-                  Weekly summary for {format(selectedDate, "MMM d, yyyy")}.
+                  Summary for the period covering {format(selectedDate, "MMM d, yyyy")}.
                 </SheetDescription>
               </SheetHeader>
               <ScrollArea className="flex-1">
                   <SidebarContent
-                    weeklyTotals={weeklyTotals}
-                    selectedDate={selectedDate}
+                    periods={payPeriods}
+                    activeIndex={activePeriodIndex}
+                    initialBalance={initialBalance}
                   />
               </ScrollArea>
             </SheetContent>
@@ -169,7 +277,6 @@ export default function ViewOnlyCalendar() {
       <CentseiCalendar
         entries={data.entries}
         generatedEntries={allGeneratedEntries}
-        setEntries={() => {}} // No-op
         timezone={data.timezone}
         openNewEntryDialog={() => {}} // No-op
         setEditingEntry={() => {}} // No-op
@@ -177,8 +284,7 @@ export default function ViewOnlyCalendar() {
         setEntryDialogOpen={() => {}} // No-op for read-only view
         openDayEntriesDialog={(holidays: Holiday[], birthdays: Birthday[]) => {}} // No-op
         isReadOnly={true}
-        weeklyBalances={weeklyBalances}
-        weeklyTotals={weeklyTotals}
+        payPeriods={payPeriods}
         isSelectionMode={false}
         toggleSelectionMode={() => {}}
         selectedInstances={[]}
@@ -186,6 +292,15 @@ export default function ViewOnlyCalendar() {
         onBulkDelete={() => {}}
         onMoveRequest={() => {}}
         birthdays={data.birthdays || []}
+        budgetScore={null}
+        dojoRank={{ level: 0, name: 'No Rank', belt: { name: 'None', color: '' }, stripes: 0, nextMilestone: 0, nextRankName: '', progress: 0, balanceToNext: 0 }}
+        goals={[]}
+        onScoreInfoClick={() => {}}
+        onScoreHistoryClick={() => {}}
+        onDojoInfoClick={() => {}}
+        activePeriodIndex={activePeriodIndex}
+        initialBalance={initialBalance}
+        onInstancePaidToggle={() => {}}
       />
     </div>
   );

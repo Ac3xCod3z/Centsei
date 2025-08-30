@@ -11,7 +11,7 @@ import {
 } from 'date-fns';
 import type { Entry, Birthday, Granularity } from './types';
 import { getHolidaysForYear } from './holidays';
-import { parseDateInTimezone } from './utils';
+import { parseDateInTimezone } from './time';
 
 export type ForecastDataPoint = {
   date: string; // Period start date 'YYYY-MM-DD'
@@ -58,7 +58,7 @@ export const generateSeasonalForecast = (
 
   // 2. Generate forecast for each period in the date range (monthly for now)
   const periods = eachMonthOfInterval(dateRange);
-  const currentYear = new Date().getFullYear();
+  const currentYear = parseDateInTimezone(new Date(), timezone).getFullYear();
   const holidays = getHolidaysForYear(currentYear);
 
   return periods.map(periodStart => {
@@ -81,6 +81,7 @@ export const generateSeasonalForecast = (
     // 4. Adjust for birthdays in this period
     if (includeBirthdays) {
         birthdays.forEach(birthday => {
+            if (typeof birthday.date !== 'string' || !birthday.date.includes('-')) return;
             const [month, day] = birthday.date.split('-').map(Number);
             const birthdayDateThisYear = setYear(new Date(0, month - 1, day), periodStart.getFullYear());
             if (isWithinInterval(birthdayDateThisYear, { start: periodStart, end: periodEnd })) {

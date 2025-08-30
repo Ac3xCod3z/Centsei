@@ -1,21 +1,20 @@
-
 {
   "name": "nextn",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack -p 9002",
+    "dev": "next dev -p 9002",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
     "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
     "build": "next build",
-    "prebuild": "node src/scripts/generate-sw-config.js && node src/scripts/generate-pwa-assets.js",
-    "start": "next start",
+    "prebuild": "node src/scripts/generate-pwa-assets.js",
+    "start": "next start -p ${PORT:-8080}",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@genkit-ai/googleai": "^1.14.1",
-    "@genkit-ai/next": "^1.14.1",
+    "@genkit-ai/googleai": "^1.16.1",
+    "@genkit-ai/next": "^1.16.1",
     "@hookform/resolvers": "^4.1.3",
     "@radix-ui/react-accordion": "^1.2.3",
     "@radix-ui/react-alert-dialog": "^1.1.6",
@@ -44,8 +43,8 @@
     "date-fns-tz": "^3.1.3",
     "dotenv": "^16.5.0",
     "embla-carousel-react": "^8.6.0",
-    "firebase": "^10.12.3",
-    "genkit": "^1.14.1",
+    "firebase": "^12.1.0",
+    "genkit": "^1.16.1",
     "gsap": "^3.12.5",
     "js-confetti": "^0.12.0",
     "lucide-react": "^0.475.0",
@@ -63,15 +62,20 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@genkit-ai/firebase": "^1.16.1",
+    "@opentelemetry/exporter-jaeger": "^2.0.1",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "copyfiles": "^2.4.1",
-    "genkit-cli": "^1.14.1",
+    "genkit-cli": "^1.16.1",
     "postcss": "^8",
     "sharp": "^0.33.4",
     "svg-to-png": "^4.0.0",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=18 <=22"
   }
 }

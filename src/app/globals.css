@@ -24,6 +24,8 @@
     --input: 240 5.9% 90%;
     --ring: 240 5% 64.9%;
     --radius: 0.5rem;
+    --day-selected: hsl(var(--primary));
+    --day-selected-foreground: 0 0% 98%;
   }
  
   .dark {
@@ -46,6 +48,9 @@
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
     --ring: 240 4.9% 83.9%;
+    --radius: 0.5rem;
+    --day-selected: hsl(var(--primary));
+    --day-selected-foreground: 0 0% 98%;
   }
 }
 
@@ -72,6 +77,26 @@
 
   .animate-fade-in-up {
     animation: fade-in-up 0.5s ease-out forwards;
+  }
+  
+  /* Toggle this class on <body> while calendar is shown */
+  body.centsei-no-callout,
+  body.centsei-no-callout [data-radix-portal] {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Images: prevent long-press drag/save intent */
+  body.centsei-no-callout img,
+  body.centsei-no-callout [data-radix-portal] img {
+    -webkit-user-drag: none;
+    user-drag: none;
+  }
+
+  /* Keep scrolling natural */
+  body.centsei-no-callout {
+    touch-action: pan-x pan-y;
   }
 }
 

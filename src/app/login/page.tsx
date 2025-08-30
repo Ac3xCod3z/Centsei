@@ -1,58 +1,51 @@
 // src/app/login/page.tsx
 "use client";
 
-import React, { useEffect } from 'react';
-import { useAuth } from '@/components/auth-provider';
-import { useRouter } from 'next/navigation';
+import React from 'react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { CentseiLoader } from '@/components/centsei-loader';
-import { LogIn } from 'lucide-react';
+import { useLoginPage } from './use-login-page';
 
 export default function LoginPage() {
-  const { user, signInWithGoogle, loading, isGuest, continueAsGuest } = useAuth();
-  const router = useRouter();
+  const { 
+    isLoading, 
+    signInWithGoogle, 
+    continueAsGuest 
+  } = useLoginPage();
 
-  useEffect(() => {
-    if (!loading && (user || isGuest)) {
-      router.replace('/');
-    }
-  }, [user, loading, isGuest, router]);
-
-  if (loading || user || isGuest) {
+  if (isLoading) {
     return <CentseiLoader isAuthLoading />;
   }
   
   return (
-    <div className="flex h-screen w-full items-center justify-center bg-background p-4">
-      <div className="w-full max-w-sm rounded-xl border bg-card p-8 text-center shadow-lg space-y-4">
-        <Image src="/CentseiLogo.png" alt="Centsei Logo" width={150} height={45} className="mx-auto mb-2" style={{ height: 'auto' }} />
-        <h1 className="text-2xl font-bold">Welcome to Centsei</h1>
-        <p className="text-muted-foreground !mt-2">Your personal finance sensei.</p>
-        
-        <Button onClick={signInWithGoogle} className="w-full">
-          Sign In with Google
-        </Button>
-        
-        <div className="relative text-center text-xs text-muted-foreground">or</div>
+    <main className="min-h-screen flex items-center justify-center bg-background">
+      <div className="w-full max-w-sm p-6 rounded-xl border bg-card shadow-sm space-y-6 text-center">
+        <div className="flex justify-center">
+          <Image src="/CentseiLogo.png" alt="Centsei" width={140} height={46} style={{ height: 'auto' }} />
+        </div>
 
-        <Button
-          variant="outline"
-          className="w-full"
-          onClick={() => {
-            continueAsGuest();
-            router.push("/"); // go to dashboard
-          }}
-        >
-          <LogIn className="mr-2 h-4 w-4" />
-          Continue without signing in
-        </Button>
-
-        <p className="text-xs text-muted-foreground text-center !mt-2">
-          Your data will be saved on this device only. You can sign in later to sync and back it up.
+        <h1 className="text-xl font-semibold">Welcome</h1>
+        <p className="text-sm text-muted-foreground">
+          Sign in to sync across devices — or continue without an account to keep data on this device.
         </p>
 
+        <div className="space-y-3">
+          <Button className="w-full" onClick={signInWithGoogle}>
+            Continue with Google
+          </Button>
+
+          <div className="text-xs text-muted-foreground">or</div>
+
+          <Button variant="outline" className="w-full" onClick={continueAsGuest}>
+            Use without account (local only)
+          </Button>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          You can switch to Google later from Settings to enable sync & backup.
+        </p>
       </div>
-    </div>
+    </main>
   );
 }

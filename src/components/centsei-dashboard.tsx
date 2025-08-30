@@ -1,10 +1,10 @@
-
+// src/components/centsei-dashboard.tsx
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useMedia } from "react-use";
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import {
   collection,
   onSnapshot,
@@ -28,6 +28,8 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { gsap } from "gsap";
+import { MotionPathPlugin } from "gsap/MotionPathPlugin";
 
 import { EntryDialog } from "./entry-dialog";
 import { SettingsDialog } from "./settings-dialog";
@@ -51,457 +53,654 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { Entry, RolloverPreference, WeeklyBalances, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent } from "@/lib/types";
+
+import type { Entry, RolloverPreference, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent, MasterEntry } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
-import { format, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, add, getDay, isSameDay, addMonths, getYear, isWithinInterval } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO } from "date-fns";
+import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { scheduleNotificationsLocal, cancelAllNotificationsLocal } from "@/lib/notification-manager";
 import { useToast } from "@/hooks/use-toast";
 import { welcomeMessages } from "@/lib/messages";
-import { calculateBudgetScore } from "@/lib/budget-score";
+import { calculateBudgetScore, getRank } from "@/lib/budget-score";
 import { BudgetScoreInfoDialog } from "./budget-score-info-dialog";
 import { BudgetScoreHistoryDialog } from "./budget-score-history-dialog";
 import { getDojoRank } from "@/lib/dojo-journey";
 import { DojoJourneyInfoDialog } from "./dojo-journey-info-dialog";
 import JSConfetti from 'js-confetti';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
-import { BudgetScoreWidget } from "./budget-score-widget";
-import { DojoJourneyWidget } from "./dojo-journey-widget";
-import { Separator } from "./ui/separator";
 import { getHolidaysForYear } from "@/lib/holidays";
 import { getForecastInsights } from "@/lib/forecast-insights";
 import SenseiSaysUI from "./sensei-says-ui";
-import { useSenseiSays } from "@/lib/sensei/useSenseiSays";
 import { useAuth } from './auth-provider';
 import { CentseiLoader } from "./centsei-loader";
 import useLocalStorage from "@/hooks/use-local-storage";
-import { parseDateInTimezone, stripUndefined } from "@/lib/utils";
-import { generateRecurringInstances, getOriginalIdFromInstance, getInstanceDate, computeWeeklyBalances } from "@/lib/entries";
-import { subscribeFCM, unsubscribeFCM } from "@/lib/notifications-fcm";
-import { MigrationDialog } from './migration-dialog';
+import { stripUndefined } from "@/lib/utils";
+import { useSenseiSays } from "@/lib/sensei/useSenseiSays";
+import { useBlockMobileContextMenu } from "@/hooks/use-block-mobile-contextmenu";
+import { useBodyNoCalloutToggle } from "@/hooks/use-body-no-callout-toggle";
+import { SenseiEvaluationDialog } from "./sensei-evaluation-dialog";
+import { DojoJourneyDialog } from "./dojo-journey-dialog";
+import { cn } from "@/lib/utils";
+import { useDraggableFab } from "@/hooks/use-draggable-fab";
+
+import { buildPayPeriods } from "@/lib/pay-periods";
+import { moveOneTime, moveSeries, moveSingleOccurrence, validateMaster, updateSeries, updateSingleOccurrence, deleteSeries, deleteSingleOccurrence } from "@/lib/move";
+import { parseDateInTimezone } from "@/lib/time";
+import { startOfDay } from "date-fns";
+
+
+
+const generateRecurringInstances = (entry: MasterEntry, start: Date, end: Date, timezone: string): Entry[] => {
+  if (!entry.date) return [];
+
+  const instanceMap = new Map<string, Entry>();
+  
+  const anchorDate = parseDateInTimezone(entry.date, timezone);
+  const floorDate = max([anchorDate, startOfDay(start)]);
+  
+  const recurrenceEndDate = entry.recurrenceEndDate ? parseDateInTimezone(entry.recurrenceEndDate, timezone) : null;
+
+  const createInstance = (date: Date): Entry => {
+    const dateStr = format(date, 'yyyy-MM-dd');
+    const exception = entry.exceptions?.[dateStr];
+
+    const today = parseDateInTimezone(new Date(), timezone);
+    const instanceDate = date; // Already a zoned date object
+    const isPastOrToday = !isAfter(instanceDate, today);
+
+    let isPaid = false;
+    if (exception?.isPaid !== undefined) {
+      isPaid = exception.isPaid;
+    } else if (entry.recurrence === 'none') {
+      isPaid = entry.isPaid ?? false;
+    } else {
+      const isAuto = entry.isAutoPay;
+      if (isAuto) {
+        isPaid = isPastOrToday;
+      } else {
+        isPaid = false;
+      }
+    }
+
+    return {
+      ...entry,
+      date: dateStr,
+      id: `${entry.id}-${dateStr}`,
+      isPaid,
+      order: exception?.order ?? entry.order,
+      name: exception?.name ?? entry.name,
+      amount: exception?.amount ?? entry.amount,
+      category: exception?.category ?? entry.category,
+      isAutoPay: entry.isAutoPay,
+    };
+  };
+  
+  if (entry.recurrence === 'none') {
+    if (isWithinInterval(anchorDate, { start: floorDate, end })) {
+      const instance = createInstance(anchorDate);
+      instanceMap.set(entry.date, instance);
+    }
+  } else {
+    let currentDate = anchorDate;
+    
+    // Fast-forward to the first relevant date
+    if (isBefore(currentDate, floorDate)) {
+        if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
+            const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
+            while (isBefore(currentDate, floorDate)) {
+              currentDate = add(currentDate, { weeks: weeksToAdd });
+            }
+        } else {
+            const interval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
+            if (interval) {
+               while (isBefore(currentDate, floorDate)) {
+                  currentDate = add(currentDate, { months: interval });
+               }
+            }
+        }
+    }
+    
+    let occurrenceCount = 0;
+    while (isBefore(currentDate, end) || isSameDay(currentDate, end)) {
+      if (recurrenceEndDate && isAfter(currentDate, recurrenceEndDate)) break;
+      if (entry.recurrenceCount && occurrenceCount >= entry.recurrenceCount) break;
+
+      if (isWithinInterval(currentDate, { start: floorDate, end })) {
+        const dateStr = format(currentDate, 'yyyy-MM-dd');
+        const instance = createInstance(currentDate);
+        instanceMap.set(dateStr, instance);
+      }
+      
+      occurrenceCount++;
+      
+      if (entry.recurrence === 'weekly' || entry.recurrence === 'bi-weekly') {
+        const weeksToAdd = entry.recurrence === 'weekly' ? 1 : 2;
+        currentDate = add(currentDate, { weeks: weeksToAdd });
+      } else {
+        const recurrenceInterval = recurrenceIntervalMonths[entry.recurrence as keyof typeof recurrenceIntervalMonths];
+        if (recurrenceInterval) {
+          const nextMonthDate = add(anchorDate, { months: recurrenceInterval * occurrenceCount });
+          const originalDay = getDate(anchorDate);
+          const lastDayInNextMonth = lastDayOfMonth(nextMonthDate).getDate();
+          currentDate = setDate(nextMonthDate, Math.min(originalDay, lastDayInNextMonth));
+        } else {
+          break; 
+        }
+      }
+    }
+  }
+
+  if (entry.exceptions) {
+    Object.entries(entry.exceptions).forEach(([dateStr, exception]) => {
+      if (!exception) return;
+
+      if (exception.movedTo) {
+        instanceMap.delete(dateStr);
+      }
+      
+      if (exception.movedFrom === 'deleted') {
+        instanceMap.delete(dateStr);
+        return;
+      }
+
+      const exceptionDate = parseDateInTimezone(dateStr, timezone);
+      if (isWithinInterval(exceptionDate, { start: floorDate, end })) {
+        const existingInstance = instanceMap.get(dateStr);
+        if (existingInstance) {
+          if (exception.isPaid !== undefined) existingInstance.isPaid = exception.isPaid;
+          if (exception.order !== undefined) existingInstance.order = exception.order;
+          if (exception.name) existingInstance.name = exception.name;
+          if (exception.amount) existingInstance.amount = exception.amount;
+        } 
+        else if (exception.movedFrom && exception.movedFrom !== 'deleted') {
+          instanceMap.set(dateStr, createInstance(exceptionDate));
+        }
+      }
+    });
+  }
+
+  return Array.from(instanceMap.values());
+};
+
+
+function getOriginalIdFromInstance(key: string) {
+  const m = key.match(/^(.*)-(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? m[1] : key;
+}
+
+type SaveRequest = {
+  entryData: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string };
+  updateAll: boolean;
+};
 
 export default function CentseiDashboard() {
-  const { user, signOut, loading: authLoading, isGuest, exitGuest } = useAuth();
+  const { user, isGuest, loading: authLoading, signOut } = useAuth();
   const router = useRouter();
-  
-  const [localEntries, setLocalEntries] = useLocalStorage<Entry[]>("centseiEntries", []);
-  const [localGoals, setLocalGoals] = useLocalStorage<Goal[]>("centseiGoals", []);
-  const [localBirthdays, setLocalBirthdays] = useLocalStorage<Birthday[]>("centseiBirthdays", []);
 
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [goals, setGoals] = useState<Goal[]>([]);
-  const [birthdays, setBirthdays] = useState<Birthday[]>([]);
-  const [rollover, setRollover] = useLocalStorage<RolloverPreference>("centseiRollover", "carryover");
-  const [timezone, setTimezone] = useLocalStorage<string>('centseiTimezone', 'UTC');
-  const [weeklyBalances, setWeeklyBalances] = useLocalStorage<WeeklyBalances>("centseiWeeklyBalances", {});
+  const pathname = usePathname();
+  useBlockMobileContextMenu(pathname === "/" || pathname?.startsWith("/view"));
+  useBodyNoCalloutToggle();
+
+  const [entries, setEntries] = useLocalStorage<MasterEntry[]>('centseiEntries', []);
+  const [goals, setGoals] = useLocalStorage<Goal[]>('centseiGoals', []);
+  const [birthdays, setBirthdays] = useLocalStorage<Birthday[]>('centseiBirthdays', []);
+  const [rolloverPreference, setRolloverPreference] = useLocalStorage<RolloverPreference>('centseiRollover', 'carryover');
+  const [timezone, setTimezone] = useLocalStorage<string>('centseiTimezone', Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [notificationsEnabled, setNotificationsEnabled] = useLocalStorage('centseiNotificationsEnabled', false);
-  const [budgetScores, setBudgetScores] = useLocalStorage<BudgetScore[]>('centseiBudgetScores', []);
-  const [fcmToken, setFcmToken] = useLocalStorage<string | null>("centseiFcmToken", null);
+  const [budgetScoreHistory, setBudgetScoreHistory] = useLocalStorage<BudgetScore[]>('centseiBudgetScoreHistory', []);
+  const [lastWelcomeMessage, setLastWelcomeMessage] = useLocalStorage<{ message: string, date: string } | null>('centseiLastWelcome', null);
+  const [initialBalance, setInitialBalance] = useLocalStorage<number>('centseiInitialBalance', 0);
 
-
+  
   const [isEntryDialogOpen, setEntryDialogOpen] = useState(false);
   const [isSettingsDialogOpen, setSettingsDialogOpen] = useState(false);
-  const [isMobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [isDayEntriesDialogOpen, setDayEntriesDialogOpen] = useState(false);
-  const [dayDialogHolidays, setDayDialogHolidays] = useState<Holiday[]>([]);
-  const [dayDialogBirthdays, setDayDialogBirthdays] = useState<Birthday[]>([]);
-
-  const [isBreakdownDialogOpen, setBreakdownDialogOpen] = useState(false);
-  const [isSummaryDialogOpen, setSummaryDialogOpen] = useState(false);
-  const [isCalculatorDialogOpen, setCalculatorDialogOpen] = useState(false);
-  const [isGoalsDialogOpen, setGoalsDialogOpen] = useState(false);
-  const [isBirthdaysDialogOpen, setBirthdaysDialogOpen] = useState(false);
-  const [isScoreInfoDialogOpen, setScoreInfoDialogOpen] = useState(false);
-  const [isScoreHistoryDialogOpen, setScoreHistoryDialogOpen] = useState(false);
-  const [isDojoInfoDialogOpen, setDojoInfoDialogOpen] = useState(false);
-  const [isScoreWidgetOpen, setScoreWidgetOpen] = useState(false);
-  const [isDojoWidgetOpen, setDojoWidgetOpen] = useState(false);
+  const [isMonthlyBreakdownOpen, setMonthlyBreakdownOpen] = useState(false);
+  const [isMonthlySummaryOpen, setMonthlySummaryOpen] = useState(false);
+  const [isCalculatorOpen, setCalculatorOpen] = useState(false);
+  const [isGoalsOpen, setGoalsOpen] = useState(false);
+  const [isBirthdaysOpen, setBirthdaysOpen] = useState(false);
   const [isEnsoInsightsOpen, setEnsoInsightsOpen] = useState(false);
+  const [isScoreInfoOpen, setScoreInfoOpen] = useState(false);
+  const [isScoreHistoryOpen, setScoreHistoryOpen] = useState(false);
+  const [isDojoInfoOpen, setDojoInfoOpen] = useState(false);
+  const [isSenseiEvalOpen, setSenseiEvalOpen] = useState(false);
+  const [isDojoJourneyOpen, setDojoJourneyOpen] = useState(false);
+  
+  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [isDataReady, setIsDataReady] = useState(false);
-  const [ignoredMasterIds, setIgnoredMasterIds] = useState<string[]>([]);
-  const [showMigrationDialog, setShowMigrationDialog] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  
+  const [isSelectionMode, setSelectionMode] = useState(false);
+  const [selectedInstances, setSelectedInstances] = useState<SelectedInstance[]>([]);
 
-  const isMobile = useMedia("(max-width: 1024px)", false);
+  const [entryToDelete, setEntryToDelete] = useState<{instanceId: string, isSeries: boolean} | null>(null);
+  const [moveRequest, setMoveRequest] = useState<{entry: Entry, newDate: string} | null>(null);
+  const [updateRequest, setUpdateRequest] = useState<{entry: Omit<Entry, "id" | 'date'> & { id?: string; date: Date; originalDate?: string }, isSeries: boolean} | null>(null);
+
   const { toast } = useToast();
-  const sensei = useSenseiSays({
-      user,
-      onToast: (m) => toast({ description: m }),
-      onTrack: (e, p) => console.debug("track:", e, p),
+  const isMobile = useMedia("(max-width: 1024px)", false);
+  const [isMobileSheetOpen, setMobileSheetOpen] = useState(false);
+  const jsConfettiRef = useRef<JSConfetti | null>(null);
+  const settingsLoadedRef = useRef<string | null>(null);
+
+  const senseiSays = useSenseiSays({ user });
+
+  const { position: mobileMenuPosition, fabRef: mobileMenuFabRef, handlers: mobileMenuHandlers, isDragging: isMobileMenuDragging } = useDraggableFab({
+    initialPosition: { x: 16, y: 88 }, // Bottom-left default
+    onClick: () => setMobileSheetOpen(true),
   });
 
-  const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [selectedInstances, setSelectedInstances] = useState<SelectedInstance[]>([]);
-  const [isBulkDeleteAlertOpen, setBulkDeleteAlertOpen] = useState(false);
-  const [isBulkCompleteAlertOpen, setBulkCompleteAlertOpen] = useState(false);
-  const [moveOperation, setMoveOperation] = useState<{ entry: Entry, newDate: string } | null>(null);
-  const previousScoreRef = useRef<number | null>(null);
-  const previousDojoRankRef = useRef<DojoRank | null>(null);
-  const confettiRef = useRef<JSConfetti | null>(null);
-  
+  // Use Firestore for data if user is logged in
   useEffect(() => {
-    if (!authLoading && !user && !isGuest) {
-      router.replace('/login');
-    }
-  }, [user, authLoading, isGuest, router]);
-
-  useEffect(() => {
-    if (user && firestore) {
-        const listeners = [
-        { path: 'calendar_entries', setter: setEntries },
-        { path: 'goals', setter: setGoals },
-        { path: 'birthdays', setter: setBirthdays }
-        ];
-
-        const unsubscribes = listeners.map(({ path, setter }) => {
-        const collRef = collection(firestore, 'users', user.uid, path);
-        const q = query(collRef);
-        return onSnapshot(q, (querySnapshot) => {
-            const items = querySnapshot.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
-            setter(items);
-        }, (error) => {
-            console.error(`Error listening to ${path}:`, error);
-        });
-        });
-
-        return () => unsubscribes.forEach(unsub => unsub());
-    } else if (isGuest) {
-        setEntries(localEntries);
-        setGoals(localGoals);
-        setBirthdays(localBirthdays);
-    }
-  }, [user, isGuest, localEntries, localGoals, localBirthdays]);
-
-  useEffect(() => {
-    const run = async () => {
-      if (!user || !isGuest || !firestore) return;
-
-      const hasLocalData = (localEntries?.length ?? 0) + (localGoals?.length ?? 0) + (localBirthdays?.length ?? 0) > 0;
-      if (!hasLocalData) {
-        exitGuest();
+    if (!user) {
+        // If user logs out, the useLocalStorage hooks will take over.
+        settingsLoadedRef.current = null; // Reset for potential re-login
         return;
-      }
-  
-      const userDocRef = doc(firestore, 'users', user.uid);
-      const userDoc = await getDoc(userDocRef);
-  
-      if (userDoc.exists() && userDoc.data()?.migration_done) {
-        exitGuest();
-        return;
-      }
-  
-      if (!userDoc.exists()) {
-        await setDoc(userDocRef, { email: user.email, displayName: user.displayName, photoURL: user.photoURL, created_at: new Date() }, { merge: true });
-      }
-  
-      setShowMigrationDialog(true);
+    }
+    const entriesQuery = query(collection(firestore, 'users', user.uid, 'calendar_entries'));
+    const goalsQuery = query(collection(firestore, 'users', user.uid, 'goals'));
+    const birthdaysQuery = query(collection(firestore, 'users', user.uid, 'birthdays'));
+    
+    const settingsDocRef = doc(firestore, 'users', user.uid);
+    const unsubSettings = onSnapshot(settingsDocRef, (doc) => {
+        // Prevent infinite loop by only setting state once per user login
+        if (settingsLoadedRef.current === user.uid) return;
+
+        const settings = doc.data()?.settings;
+        if (settings) {
+            if (settings.rolloverPreference) setRolloverPreference(settings.rolloverPreference);
+            if (settings.timezone) setTimezone(settings.timezone);
+            if (settings.notificationsEnabled !== undefined) setNotificationsEnabled(settings.notificationsEnabled);
+            if (settings.initialBalance !== undefined) setInitialBalance(settings.initialBalance);
+            settingsLoadedRef.current = user.uid; // Mark as loaded
+        }
+    });
+
+    const unsubEntries = onSnapshot(entriesQuery, snapshot => {
+        const cloudEntries = snapshot.docs.map(d => ({...d.data(), id: d.id } as MasterEntry));
+        setEntries(cloudEntries);
+    });
+
+    const unsubGoals = onSnapshot(goalsQuery, snapshot => {
+        const cloudGoals = snapshot.docs.map(d => ({...d.data(), id: d.id } as Goal));
+        setGoals(cloudGoals);
+    });
+    
+    const unsubBirthdays = onSnapshot(birthdaysQuery, snapshot => {
+        const cloudBirthdays = snapshot.docs.map(d => ({...d.data(), id: d.id } as Birthday));
+        setBirthdays(cloudBirthdays);
+    });
+
+    return () => {
+        unsubEntries();
+        unsubGoals();
+        unsubBirthdays();
+        unsubSettings();
     };
-    run();
-  }, [user, isGuest, localEntries, localGoals, localBirthdays, exitGuest]);
+  }, [user, setEntries, setGoals, setBirthdays, setRolloverPreference, setTimezone, setNotificationsEnabled, setInitialBalance]);
 
-  const toggleSelectionMode = useCallback(() => {
-    setIsSelectionMode(prev => !prev);
-    setSelectedInstances([]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+        jsConfettiRef.current = new JSConfetti();
+        gsap.registerPlugin(MotionPathPlugin);
+    }
   }, []);
-  
-  const handleBulkDelete = async () => {
-    if (selectedInstances.length === 0 || !user || !firestore) return;
-  
-    try {
-      const batch = writeBatch(firestore);
-      const newlyIgnored: string[] = [];
-  
-      for (const instance of selectedInstances) {
-        const masterId = getOriginalIdFromInstance(instance.instanceId);
-        const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
-        const snap = await getDoc(docRef);
-  
-        if (!snap.exists()) {
-          if (!newlyIgnored.includes(masterId)) newlyIgnored.push(masterId);
-          continue;
-        }
-        
-        const masterEntry = snap.data() as Entry;
-  
-        if (masterEntry?.recurrence === 'none') {
-          batch.delete(docRef);
-        } else {
-          batch.update(docRef, { [`exceptions.${instance.date}.movedFrom`]: true });
-        }
-      }
-  
-      if (newlyIgnored.length) {
-        setIgnoredMasterIds(prev => [...new Set([...prev, ...newlyIgnored])]);
-      }
-      await batch.commit();
-      toggleSelectionMode();
-      setBulkDeleteAlertOpen(false);
-      toast({ title: `${selectedInstances.length} entries deleted.` });
-    } catch (err) {
-      console.error("handleBulkDelete error:", err);
-      toast({ title: "Bulk delete failed", description: String(err), variant: "destructive" });
-    }
-  };
 
-  const handleConfirmMove = async () => {
-    if (!moveOperation || !user || !firestore) return;
-    try {
-      const { entry: movedEntry, newDate } = moveOperation;
-      const masterId = getOriginalIdFromInstance(movedEntry.id);
-      const originalDateStr = movedEntry.date;
-      
-      const docRef = doc(firestore, "users", user.uid, "calendar_entries", masterId);
-      const masterEntry = entries.find((e) => e.id === masterId);
-      if (!masterEntry) throw new Error("Master entry not found");
+  const allGeneratedEntries = useMemo(() => {
+    if (entries.length === 0) return [];
+    
+    const viewStart = startOfMonth(subMonths(new Date(), 3));
+    const viewEnd = endOfMonth(addMonths(new Date(), 3));
 
-      if (masterEntry.recurrence === "none") {
-        await updateDoc(docRef, stripUndefined({ date: newDate, updated_at: serverTimestamp() }));
-      } else {
-        const newException = stripUndefined({
-            movedTo: newDate,
-            isPaid: movedEntry.isPaid ?? false,
-            order: movedEntry.order ?? null,
-            name: movedEntry.name,
-            amount: movedEntry.amount,
-            type: movedEntry.type,
-            ...(movedEntry.category ? { category: movedEntry.category } : {}),
-        });
+    return entries.flatMap((e) => generateRecurringInstances(e, viewStart, viewEnd, timezone));
+  }, [entries, timezone]);
 
-        await updateDoc(docRef, stripUndefined({
-            [`exceptions.${originalDateStr}.movedFrom`]: true,
-            [`exceptions.${newDate}`]: newException,
-            updated_at: serverTimestamp(),
-        }));
-      }
-
-      setMoveOperation(null);
-      toast({
-        title: "Entry moved",
-        description: `Moved "${movedEntry.name}" to ${format(parseDateInTimezone(newDate, timezone), "PPP")}.`,
-      });
-    } catch (err) {
-      console.error("handleConfirmMove error:", err);
-      toast({ title: "Move failed", description: String(err), variant: "destructive" });
-    }
-  };
+  const payPeriods = useMemo(
+    () => buildPayPeriods(allGeneratedEntries, 1, timezone),
+    [allGeneratedEntries, timezone]
+  );
   
-  const handleBulkMarkAsComplete = async () => {
-    if (selectedInstances.length === 0) return;
-    try {
-      if (user && firestore) {
-        const batch = writeBatch(firestore);
-        selectedInstances.forEach((instance) => {
-          const masterId = getOriginalIdFromInstance(instance.instanceId);
-          const docRef = doc(firestore, "users", user.uid, "calendar_entries", masterId);
-          batch.update(docRef, { [`exceptions.${instance.date}.isPaid`]: true });
-        });
-        await batch.commit();
-      } else {
-        setLocalEntries((prev) => {
-          const updated = [...prev];
-          selectedInstances.forEach((instance) => {
-            const idx = updated.findIndex((e) => e.id === instance.masterId);
-            if (idx !== -1) {
-              const m = updated[idx];
-              if (m.recurrence !== "none") {
-                const ex = { ...m.exceptions, [instance.date]: { ...m.exceptions?.[instance.date], isPaid: true } };
-                updated[idx] = { ...m, exceptions: ex };
-              } else {
-                updated[idx] = { ...m, isPaid: true };
-              }
-            }
-          });
-          return updated;
-        });
-      }
+  const activePeriodIndex = useMemo(() => {
+    const idx = payPeriods.findIndex(p => selectedDate >= p.start && selectedDate < p.end);
+    if (idx !== -1) return idx;
+    // Fallback: find the period that would have been before this date.
+    const prevIdx = payPeriods.findIndex(p => selectedDate >= p.start) -1;
+    return Math.max(0, prevIdx);
+  }, [payPeriods, selectedDate]);
 
-      setBulkCompleteAlertOpen(false);
-      toast({ title: `${selectedInstances.length} entries marked as complete.` });
-      toggleSelectionMode();
-    } catch (err) {
-      console.error("handleBulkMarkAsComplete error:", err);
-      toast({ title: "Bulk complete failed", description: String(err), variant: "destructive" });
-    }
-  };
 
-  async function handleNotificationsToggle(enabled: boolean) {
+  const handleNotificationsToggle = (enabled: boolean) => {
     setNotificationsEnabled(enabled);
-  
     if (enabled) {
-      if (user && !isGuest) {
-        try {
-          const token = await subscribeFCM(user.uid, timezone);
-          setFcmToken(token);
-          await cancelAllNotificationsLocal(toast);
-        } catch (err:any) {
-          toast({ title: "Notifications blocked", description: err?.message || "Could not enable push.", variant: "destructive" });
-          setNotificationsEnabled(false);
-        }
+      if (Notification.permission === 'granted') {
+        scheduleNotificationsLocal(entries, timezone, toast);
+        toast({ title: 'Notifications Enabled', description: 'You will now receive reminders for upcoming bills.' });
+      } else if (Notification.permission === 'denied') {
+        toast({ title: 'Notifications Blocked', description: 'Please enable notifications in your browser settings.', variant: 'destructive' });
       } else {
-        await scheduleNotificationsLocal(entries, timezone, toast);
+        Notification.requestPermission().then(permission => {
+          if (permission === 'granted') {
+            scheduleNotificationsLocal(entries, timezone, toast);
+            toast({ title: 'Notifications Enabled', description: 'You will now receive reminders for upcoming bills.' });
+          } else {
+            setNotificationsEnabled(false);
+            toast({ title: 'Notifications Not Enabled', description: 'You have not granted permission for notifications.' });
+          }
+        });
       }
     } else {
-      if (user && !isGuest && fcmToken) {
-        await unsubscribeFCM(user.uid, fcmToken);
-        setFcmToken(null);
-      }
-      await cancelAllNotificationsLocal(toast);
+      cancelAllNotificationsLocal(toast);
+      toast({ title: 'Notifications Disabled', description: 'You will no longer receive bill reminders.' });
+    }
+  };
+
+  const handleSaveEntry = async (
+    entryToSave: Omit<Entry, 'id' | 'date'> & { id?: string; date: Date; originalDate?: string },
+    isSeriesUpdate = false
+) => {
+    const { originalDate, ...data } = entryToSave;
+    const masterId = data.id ? getOriginalIdFromInstance(data.id) : undefined;
+    const masterEntry = masterId ? entries.find(e => e.id === masterId) : undefined;
+    
+    // Check if we need to show the update dialog for recurring entries
+    if (masterEntry && masterEntry.recurrence !== 'none' && !isSeriesUpdate && !updateRequest) {
+        setUpdateRequest({ entry: entryToSave, isSeries: false });
+        return;
+    }
+    
+    setUpdateRequest(null); // Clear the request once we proceed
+
+    const saveData = { ...data };
+    if (saveData.date) saveData.date = format(saveData.date, 'yyyy-MM-dd');
+    if (saveData.recurrenceEndDate) saveData.recurrenceEndDate = format(saveData.recurrenceEndDate, 'yyyy-MM-dd');
+    
+    if (masterId && masterEntry) {
+        let updatedEntry: MasterEntry;
+        if (isSeriesUpdate) {
+            updatedEntry = updateSeries(masterEntry, saveData);
+        } else {
+            updatedEntry = updateSingleOccurrence(masterEntry, originalDate || saveData.date, saveData);
+        }
+
+        if (user) {
+            await updateDoc(doc(firestore, 'users', user.uid, 'calendar_entries', masterId), stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
+        } else {
+            setEntries(prev => prev.map(e => (e.id === masterId ? updatedEntry : e)));
+        }
+    } else { // New entry
+        const newEntryData = { ...saveData, created_at: serverTimestamp(), updated_at: serverTimestamp() };
+        if (user) {
+            await addDoc(collection(firestore, 'users', user.uid, 'calendar_entries'), stripUndefined(newEntryData));
+        } else {
+            setEntries(prev => [...prev, { ...newEntryData, id: crypto.randomUUID() }]);
+        }
+    }
+
+    if(notificationsEnabled) scheduleNotificationsLocal(entries, timezone, toast);
+    toast({ title: 'Entry Saved', description: `Your ${data.type} has been saved.` });
+    setEntryDialogOpen(false);
+    setEditingEntry(null);
+};
+
+
+  const handleCopyEntry = (entry: Entry) => {
+    if (!selectedDate) return;
+    const copy = { ...entry, id: '', date: format(selectedDate, 'yyyy-MM-dd') };
+    setEditingEntry(copy as Entry);
+    setEntryDialogOpen(true);
+  }
+
+
+  const handleDeleteConfirmation = (instanceId: string) => {
+    const masterId = getOriginalIdFromInstance(instanceId);
+    const masterEntry = entries.find(e => e.id === masterId);
+
+    if (masterEntry && masterEntry.recurrence !== 'none') {
+        setEntryToDelete({ instanceId, isSeries: false });
+    } else {
+        handleDeleteEntry(instanceId, false); // It's a single entry, delete directly
+    }
+  }
+
+  const handleDeleteEntry = async (instanceId: string | null, isSeriesDelete: boolean) => {
+    if (!instanceId) return;
+    const masterId = getOriginalIdFromInstance(instanceId);
+    
+    if (user && firestore) {
+        const masterDocRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
+        if (isSeriesDelete) {
+            await deleteDoc(masterDocRef);
+        } else {
+            const masterDoc = await getDoc(masterDocRef);
+            if (!masterDoc.exists()) return;
+            const masterEntry = masterDoc.data() as Entry;
+
+            if (masterEntry.recurrence === 'none') {
+                await deleteDoc(masterDocRef);
+            } else {
+                const instanceDate = instanceId.substring(masterId.length + 1);
+                const exceptions = { ...masterEntry.exceptions };
+                exceptions[instanceDate] = { ...exceptions[instanceDate], movedFrom: "deleted" };
+                await updateDoc(masterDocRef, { exceptions });
+            }
+        }
+    } else {
+       setEntries(prevEntries => {
+            if (isSeriesDelete) {
+                return prevEntries.filter(e => e.id !== masterId);
+            }
+            
+            const masterEntry = prevEntries.find(e => e.id === masterId);
+            if (!masterEntry) return prevEntries;
+
+            if (masterEntry.recurrence === 'none') {
+                return prevEntries.filter(e => e.id !== masterId);
+            } else {
+                const instanceDate = instanceId.substring(masterId.length + 1);
+                const exceptions = { ...masterEntry.exceptions };
+                exceptions[instanceDate] = { ...exceptions[instanceDate], movedFrom: "deleted" };
+                return prevEntries.map(e => e.id === masterId ? { ...e, exceptions } : e);
+            }
+        });
+    }
+    
+    setEntryToDelete(null);
+    setDayEntriesDialogOpen(false);
+    toast({ title: 'Entry Deleted' });
+  };
+  
+  const handleBulkDelete = async () => {
+     if (user) {
+        const batch = writeBatch(firestore);
+        const masterUpdates = new Map<string, any>();
+        
+        for(const instance of selectedInstances) {
+            const masterEntry = entries.find(e => e.id === instance.masterId);
+            if(!masterEntry) continue;
+            
+            if(masterEntry.recurrence === 'none') {
+                const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', instance.masterId);
+                batch.delete(docRef);
+            } else {
+                const currentUpdates = masterUpdates.get(instance.masterId) || { exceptions: { ...masterEntry.exceptions } };
+                currentUpdates.exceptions[instance.date] = { ...currentUpdates.exceptions[instance.date], movedFrom: "deleted" };
+                masterUpdates.set(instance.masterId, currentUpdates);
+            }
+        }
+        
+        for (const [id, updates] of masterUpdates.entries()) {
+            const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', id);
+            batch.update(docRef, updates);
+        }
+        await batch.commit();
+
+     } else {
+        setEntries(prevEntries => {
+          const masterUpdates: Record<string, any> = {};
+          
+          for (const instance of selectedInstances) {
+            const masterEntry = prevEntries.find(e => e.id === instance.masterId);
+            if (!masterEntry) continue;
+
+            if (masterEntry.recurrence === 'none') {
+              masterUpdates[instance.masterId] = { delete: true };
+            } else {
+              if (!masterUpdates[instance.masterId]) {
+                masterUpdates[instance.masterId] = { exceptions: { ...masterEntry?.exceptions } };
+              }
+              masterUpdates[instance.masterId].exceptions[instance.date] = {
+                ...masterUpdates[instance.masterId].exceptions[instance.date],
+                movedFrom: 'deleted',
+              };
+            }
+          }
+
+          let updatedEntries = prevEntries;
+          Object.entries(masterUpdates).forEach(([masterId, update]) => {
+            if (update.delete) {
+              updatedEntries = updatedEntries.filter(e => e.id !== masterId);
+            } else {
+              updatedEntries = updatedEntries.map(e =>
+                e.id === masterId ? { ...e, exceptions: update.exceptions } : e
+              );
+            }
+          });
+          
+          return updatedEntries;
+        });
+     }
+     
+     toast({ title: `${selectedInstances.length} entries deleted.` });
+     setSelectionMode(false);
+     setSelectedInstances([]);
+  }
+
+  const handleMoveEntry = async (entryToMove: Entry, newDate: string, moveAll: boolean) => {
+    const masterId = getOriginalIdFromInstance(entryToMove.id);
+    const masterEntry = entries.find(e => e.id === masterId);
+    if (!masterEntry) return;
+
+    let updatedEntry: MasterEntry;
+
+    if (masterEntry.recurrence === 'none') {
+      updatedEntry = moveOneTime(masterEntry, entryToMove.date, newDate);
+    } else if (moveAll) {
+      updatedEntry = moveSeries(masterEntry, newDate);
+    } else {
+      updatedEntry = moveSingleOccurrence(masterEntry, entryToMove.date, newDate);
+    }
+     
+    validateMaster(updatedEntry);
+
+    if (user && firestore) {
+      const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
+      await updateDoc(docRef, stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
+    } else {
+      setEntries(prev => prev.map(e => (e.id === masterId ? updatedEntry : e)));
+    }
+     
+    setMoveRequest(null);
+    toast({ title: 'Entry Moved', description: `Moved to ${format(parseDateInTimezone(newDate, timezone), 'MMM d, yyyy')}` });
+  };
+  
+  const handleInstancePaidToggle = async (instanceId: string, isPaid: boolean) => {
+    const masterId = getOriginalIdFromInstance(instanceId);
+    const masterEntry = entries.find(e => e.id === masterId);
+    if (!masterEntry) return;
+    
+    const instanceDate = instanceId.substring(masterId.length + 1);
+    
+    // Create an exception for this one instance
+    const updatedEntry = updateSingleOccurrence(masterEntry, instanceDate, { isPaid });
+    
+    if (user && firestore) {
+        const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
+        await updateDoc(docRef, stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
+    } else {
+        setEntries(prev => prev.map(e => (e.id === masterId ? updatedEntry : e)));
+    }
+  };
+
+  const handleSaveGoal = async (goal: Omit<Goal, 'id'> & { id?: string }) => {
+    if (user) {
+        if (goal.id) {
+            await updateDoc(doc(firestore, 'users', user.uid, 'goals', goal.id), { ...goal, updated_at: serverTimestamp() });
+        } else {
+            await addDoc(collection(firestore, 'users', user.uid, 'goals'), { ...goal, created_at: serverTimestamp(), updated_at: serverTimestamp() });
+        }
+    } else {
+        setGoals(prev => goal.id ? prev.map(g => g.id === goal.id ? {...g, ...goal} : g) : [...prev, {...goal, id: crypto.randomUUID()}] );
     }
   }
   
-  useEffect(() => {
-    if (isGuest && notificationsEnabled) {
-      scheduleNotificationsLocal(entries, timezone, toast);
-    }
-  }, [entries, timezone, notificationsEnabled, isGuest, toast]);
-
-  const showWelcomeToast = useCallback(() => {
-    if (sessionStorage.getItem('centseiWelcomeShown')) return;
-    
-    const randomIndex = Math.floor(Math.random() * welcomeMessages.length);
-    toast({ description: welcomeMessages[randomIndex] });
-    sessionStorage.setItem('centseiWelcomeShown', 'true');
-  }, [toast]);
-
-  useEffect(() => {
-    showWelcomeToast();
-    confettiRef.current = new JSConfetti();
-  }, [showWelcomeToast]);
-
-  const handleEntrySave = async (
-    entryData: Omit<Entry, "id" | "date"> & { id?: string; date: Date; originalDate?: string }
-  ) => {
-    if (!firestore) {
-        toast({title: "Connection Error", description: "Cannot save entry, not connected to the database.", variant: "destructive"});
-        return;
-    }
-    const formattedDate = format(entryData.date, "yyyy-MM-dd");
-    const { id, date, ...restOfData } = entryData;
-    const masterId = id ? getOriginalIdFromInstance(id) : null;
-
-    const saveData: any = { ...restOfData };
-
-    if (saveData.type !== "bill") {
-      delete saveData.category;
-      delete saveData.isAutoPay;
+  const handleDeleteGoal = async (id: string) => {
+    if (user) {
+        await deleteDoc(doc(firestore, 'users', user.uid, 'goals', id));
     } else {
-      if (typeof saveData.category !== "string" || saveData.category.trim() === "") {
-        delete saveData.category;
-      }
+        setGoals(prev => prev.filter(g => g.id !== id));
     }
-    delete saveData.originalDate;
-
-    try {
-      if (masterId && user) {
-        const docRef = doc(firestore, "users", user.uid, "calendar_entries", masterId);
-        const masterEntry = entries.find((e) => e.id === masterId);
-
-        if (masterEntry?.recurrence !== "none" && entryData.originalDate) {
-          const exPath = `exceptions.${entryData.originalDate}`;
-          const exceptionUpdate = stripUndefined({
-            [`${exPath}.isPaid`]: entryData.isPaid,
-            [`${exPath}.name`]: entryData.name,
-            [`${exPath}.amount`]: entryData.amount,
-            ...(saveData.category ? { [`${exPath}.category`]: saveData.category } : {}),
-            updated_at: serverTimestamp(),
-          });
-          await updateDoc(docRef, exceptionUpdate);
+  }
+  
+  const handleSaveBirthday = async (birthday: Omit<Birthday, 'id'> & { id?: string }) => {
+    if (user) {
+        if (birthday.id) {
+            await updateDoc(doc(firestore, 'users', user.uid, 'birthdays', birthday.id), { ...birthday, updated_at: serverTimestamp() });
         } else {
-          const updatePayload = stripUndefined({
-            ...saveData,
-            date: formattedDate,
-            updated_at: serverTimestamp(),
-          });
-          await updateDoc(docRef, updatePayload);
+            await addDoc(collection(firestore, 'users', user.uid, 'birthdays'), { ...birthday, created_at: serverTimestamp(), updated_at: serverTimestamp() });
         }
-        toast({ title: "Saved", description: "Your entry was updated." });
-      } else if(user) {
-        const newEntry = stripUndefined({
-          ...saveData,
-          date: formattedDate,
-          created_at: serverTimestamp(),
-          updated_at: serverTimestamp(),
-        });
-        await addDoc(collection(firestore, "users", user.uid, "calendar_entries"), newEntry);
-        toast({ title: "Added", description: "Your entry was created." });
-      } else {
-        const cleanedData = stripUndefined(saveData);
-        if (masterId) {
-            setLocalEntries(prev => prev.map(e => e.id === masterId ? { ...e, ...cleanedData, date: formattedDate } : e));
-        } else {
-            setLocalEntries(prev => [...prev, { ...cleanedData, id: crypto.randomUUID(), date: formattedDate }]);
-        }
-      }
-    } catch (err) {
-      console.error("handleEntrySave error:", err);
-      toast({ title: "Save failed", description: String(err), variant: "destructive" });
+    } else {
+      setBirthdays(prev => birthday.id ? prev.map(b => b.id === birthday.id ? {...b, ...birthday} : b) : [...prev, {...birthday, id: crypto.randomUUID()}] );
     }
-  };
+  }
+  
+  const handleDeleteBirthday = async (id: string) => {
+     if (user) {
+        await deleteDoc(doc(firestore, 'users', user.uid, 'birthdays', id));
+    } else {
+      setBirthdays(prev => prev.filter(b => b.id !== id));
+    }
+  }
 
-  const handleEntryDelete = async (id: string) => {
-    if (!user) { // Guest mode deletion
-      const masterId = getOriginalIdFromInstance(id);
-      const instanceDate = getInstanceDate(id);
-      const masterEntry = localEntries.find(e => e.id === masterId);
-  
-      if (instanceDate && masterEntry && masterEntry.recurrence !== 'none') {
-        const nextEntries = localEntries.map(e => {
-          if (e.id === masterId) {
-            return { ...e, exceptions: { ...e.exceptions, [instanceDate]: { ...e.exceptions?.[instanceDate], movedFrom: true } } };
-          }
-          return e;
-        });
-        setLocalEntries(nextEntries);
-      } else {
-        setLocalEntries(prev => prev.filter(e => e.id !== masterId));
-      }
-      setEntryDialogOpen(false);
-      setEditingEntry(null);
-      toast({ title: "Deleted", description: "Entry removed." });
-      return;
-    }
-  
-    // Signed-in user deletion
-    if (!firestore) return;
-    const masterId = getOriginalIdFromInstance(id);
-    const instanceDate = getInstanceDate(id);
-    const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
-  
-    try {
-      const snap = await getDoc(docRef);
-      const masterEntry = snap.exists() ? (snap.data() as Entry) : entries.find(e => e.id === masterId);
-  
-      if (!snap.exists()) {
-        setIgnoredMasterIds(prev => prev.includes(masterId) ? prev : [...prev, masterId]);
-        toast({ title: "Cleaned up", description: "This entry was already removed. I’ve cleared the leftover instance." });
-        setEntryDialogOpen(false);
-        setEditingEntry(null);
-        return;
-      }
+  const handleReorder = (orderedEntries: Entry[]) => {
+    
+    const masterUpdates = new Map<string, MasterEntry>();
+
+    orderedEntries.forEach((entry, index) => {
+      const masterId = getOriginalIdFromInstance(entry.id);
       
-      if (instanceDate && masterEntry && masterEntry.recurrence !== 'none') {
-        await updateDoc(docRef, {
-          [`exceptions.${instanceDate}.movedFrom`]: true,
-          updated_at: serverTimestamp(),
+      // Get the latest version of the master entry, either from the map or from the state
+      const masterEntry = masterUpdates.get(masterId) || entries.find(e => e.id === masterId);
+      if (!masterEntry) return;
+
+      const updatedMaster = { ...masterEntry, exceptions: { ...(masterEntry.exceptions || {}) } };
+      
+      // Update the order for the specific instance date
+      updatedMaster.exceptions[entry.date] = { 
+        ...updatedMaster.exceptions[entry.date], 
+        order: index 
+      };
+      
+      masterUpdates.set(masterId, stripUndefined(updatedMaster));
+    });
+
+    if (user) {
+        const batch = writeBatch(firestore);
+        masterUpdates.forEach((updatedMaster, id) => {
+            const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', id);
+            batch.update(docRef, { exceptions: updatedMaster.exceptions });
         });
-      } else {
-        await deleteDoc(docRef);
-      }
-  
-      setEntryDialogOpen(false);
-      setEditingEntry(null);
-      toast({ title: "Deleted", description: "Entry removed." });
-    } catch (err) {
-      console.error("handleEntryDelete error:", err);
-      toast({ title: "Delete failed", description: String(err), variant: "destructive" });
+        batch.commit();
+    } else {
+       setEntries(prevEntries => {
+          return prevEntries.map(e => masterUpdates.get(e.id) || e);
+       });
     }
+
+    toast({ title: 'Order Saved', description: 'Your new entry order has been saved.' });
   };
-  
-  const handleEntryCopy = (entryToCopy: Entry) => {
-    setEditingEntry({ ...entryToCopy, id: '', isPaid: false });
-    setEntryDialogOpen(true);
-  };
+
 
   const openNewEntryDialog = (date: Date) => {
     setSelectedDate(date);
@@ -509,610 +708,410 @@ export default function CentseiDashboard() {
     setEntryDialogOpen(true);
   };
   
-   const openDayEntriesDialog = (holidays: Holiday[], birthdays: Birthday[]) => {
-    setDayDialogHolidays(holidays);
-    setDayDialogBirthdays(birthdays);
+
+  const openDayEntriesDialog = (holidays: Holiday[], dayBirthdays: Birthday[]) => {
     setDayEntriesDialogOpen(true);
   };
 
-  const allGeneratedEntries = useMemo(() => {
-    if (entries.length === 0) return [];
-    
-    const viewStart = startOfMonth(subMonths(new Date(), 12));
-    const viewEnd = endOfMonth(addMonths(new Date(), 24));
-
-    const base = entries.flatMap((e) => generateRecurringInstances(e, viewStart, viewEnd, timezone));
-    if (!ignoredMasterIds.length) return base;
-
-    return base.filter(inst => {
-      const masterId = getOriginalIdFromInstance(inst.id);
-      return !ignoredMasterIds.includes(masterId);
-    });
-  }, [entries, timezone, ignoredMasterIds]);
+  const handleEditFromDayDialog = (entry: Entry) => {
+    setDayEntriesDialogOpen(false);
+    // Find the master to make sure we have the full, non-overridden entry data
+    const originalEntryId = getOriginalIdFromInstance(entry.id);
+    const masterEntry = entries.find(e => e.id === originalEntryId);
+    if (!masterEntry) {
+        console.error("Could not find master entry for editing:", entry.id);
+        return;
+    }
+    // Create the instance object for the dialog, combining master with instance-specific details
+    const instanceForEdit = { ...masterEntry, ...entry };
+    setEditingEntry(instanceForEdit);
+    setEntryDialogOpen(true);
+  };
   
+  const handleAddFromDayDialog = () => {
+    if (!selectedDate) return;
+    setDayEntriesDialogOpen(false);
+    openNewEntryDialog(selectedDate);
+  }
+
   const budgetScore = useMemo(() => {
-      return calculateBudgetScore(allGeneratedEntries);
-  }, [allGeneratedEntries]);
+      if (allGeneratedEntries.length === 0) return null;
+      return calculateBudgetScore(allGeneratedEntries, timezone);
+  }, [allGeneratedEntries, timezone]);
 
-  useEffect(() => {
-    if (!budgetScore) return;
-
-    if (previousScoreRef.current !== null) {
-      const scoreChange = budgetScore.score - previousScoreRef.current;
-      if (scoreChange >= 2) {
-        toast({
-          title: "Sensei sees your growth!",
-          description: `Your score improved by ${scoreChange} points!`,
-        });
-      } else if (scoreChange <= -2) {
-        toast({
-          title: "Beware, young grasshoppa...",
-          description: `Your score has fallen by ${Math.abs(scoreChange)} points.`,
-          variant: 'destructive',
-        });
-      }
-    }
-    previousScoreRef.current = budgetScore.score;
-
-    const todayStr = format(new Date(), 'yyyy-MM-dd');
-    const hasScoreForToday = budgetScores.some(s => s.date === todayStr);
+  const dojoRank = useMemo(() => {
+    const primaryGoal = goals.length > 0 ? goals[0] : null;
+    return getDojoRank(primaryGoal);
+  }, [goals]);
+  
+  const seasonalEvents = useMemo(() => {
+    const now = parseDateInTimezone(new Date(), timezone);
+    const next30Days = add(now, {days: 30});
+    const holidays = getHolidaysForYear(getYear(now));
     
-    if (!hasScoreForToday) {
-       const newScores = [...budgetScores, budgetScore].slice(-30); 
-       setBudgetScores(newScores);
-    } else {
-      const todaysSavedScore = budgetScores.find(s => s.date === todayStr);
-      if (todaysSavedScore && Math.abs(todaysSavedScore.score - budgetScore.score) > 2) {
-           setBudgetScores(prevScores => {
-              const updatedScores = prevScores.filter(s => s.date !== todayStr);
-              return [...updatedScores, budgetScore];
-          });
-      }
-    }
-  }, [budgetScore, budgetScores, setBudgetScores, toast]);
-
-    const handleSaveGoal = async (goalData: Omit<Goal, 'id'> & { id?: string }) => {
-        if (user && firestore) {
-            if (goalData.id) {
-                await updateDoc(doc(firestore, 'users', user.uid, 'goals', goalData.id), { ...goalData, updated_at: serverTimestamp() });
-            } else {
-                await addDoc(collection(firestore, 'users', user.uid, 'goals'), { ...goalData, created_at: serverTimestamp(), updated_at: serverTimestamp() });
-            }
-        } else {
-            setLocalGoals(prev => {
-                if (goalData.id) {
-                    return prev.map(g => g.id === goalData.id ? { ...g, ...goalData } : g);
-                }
-                return [...prev, { ...goalData, id: crypto.randomUUID() }];
-            });
-        }
-    };
-
-    const handleDeleteGoal = async (id: string) => {
-       if (user && firestore) {
-            await deleteDoc(doc(firestore, 'users', user.uid, 'goals', id));
-        } else {
-            setLocalGoals(prev => prev.filter(g => g.id !== id));
-        }
-    };
-
-    const handleSaveBirthday = async (birthdayData: Omit<Birthday, 'id'> & { id?: string }) => {
-        if (user && firestore) {
-            if (birthdayData.id) {
-                await updateDoc(doc(firestore, 'users', user.uid, 'birthdays', birthdayData.id), { ...birthdayData, updated_at: serverTimestamp() });
-            } else {
-                await addDoc(collection(firestore, 'users', user.uid, 'birthdays'), { ...birthdayData, created_at: serverTimestamp(), updated_at: serverTimestamp() });
-            }
-        } else {
-            setLocalBirthdays(prev => {
-                if (birthdayData.id) {
-                    return prev.map(b => b.id === birthdayData.id ? { ...b, ...birthdayData } : b);
-                }
-                return [...prev, { ...birthdayData, id: crypto.randomUUID() }];
-            });
-        }
-    };
-
-    const handleDeleteBirthday = async (id: string) => {
-        if (user && firestore) {
-            await deleteDoc(doc(firestore, 'users', user.uid, 'birthdays', id));
-        } else {
-            setLocalBirthdays(prev => prev.filter(g => g.id !== id));
-        }
-    };
-
-  useEffect(() => {
-    if (allGeneratedEntries.length === 0) return;
-    const newWeeklyBalances = computeWeeklyBalances(allGeneratedEntries, timezone, rollover);
-    if (JSON.stringify(newWeeklyBalances) !== JSON.stringify(weeklyBalances)) {
-      setWeeklyBalances(newWeeklyBalances);
-    }
-  }, [allGeneratedEntries, timezone, rollover, setWeeklyBalances, weeklyBalances]);
-
-  useEffect(() => {
-    if (allGeneratedEntries.length === 0) return;
-
-    const insights = getForecastInsights(allGeneratedEntries, goals);
+    const events: SeasonalEvent[] = [];
     
-    insights.forEach(insight => {
-        const hasShown = sessionStorage.getItem(`insight_${insight.type}_${insight.details}`);
-        if (!hasShown) {
-             toast({
-                title: insight.title,
-                description: insight.description,
-            });
-            sessionStorage.setItem(`insight_${insight.type}_${insight.details}`, 'true');
+    holidays.forEach(h => {
+        if(isWithinInterval(h.date, {start: now, end: next30Days})) {
+            events.push({
+                date: format(h.date, 'yyyy-MM-dd'),
+                name: h.name,
+                expected_spend: 50, // placeholder
+            })
+        }
+    });
+
+    birthdays.forEach(b => {
+        if (typeof b.date !== 'string' || !b.date.includes('-')) return;
+        const [month, day] = b.date.split('-').map(Number);
+        const bdate = set(now, {month: month-1, date: day});
+        if(isWithinInterval(bdate, {start: now, end: next30Days})) {
+             events.push({
+                date: format(bdate, 'yyyy-MM-dd'),
+                name: b.name,
+                expected_spend: b.budget || 50,
+            })
         }
     })
-
-  }, [allGeneratedEntries, goals, toast]);
-
-
-  const { dayEntries, weeklyTotals, dojoRank, seasonalEvents, seasonalEventsNext30d } = useMemo(() => {
-      setIsDataReady(false);
-      const primaryGoal = goals.length > 0 ? goals[0] : null;
-      const rank = getDojoRank(primaryGoal);
-
-      if (!allGeneratedEntries.length) {
-        setIsDataReady(true);
-        return {
-          dayEntries: [],
-          weeklyTotals: { income: 0, bills: 0, net: 0, startOfWeekBalance: 0, status: 0 },
-          dojoRank: rank,
-          seasonalEvents: [],
-          seasonalEventsNext30d: [],
-        };
-      }
-
-      const dayEntries = allGeneratedEntries.filter((e) => isSameDay(parseDateInTimezone(e.date, timezone), selectedDate));
-      
-      const weekStart = startOfWeek(selectedDate);
-      const weekKey = format(weekStart, 'yyyy-MM-dd');
-      
-      const weekBalanceInfo = weeklyBalances[weekKey];
-      const startOfWeekBalance = weekBalanceInfo ? weekBalanceInfo.start : 0;
-      const endOfWeekBalance = weekBalanceInfo ? weekBalanceInfo.end : 0;
-
-      const weekEntries = allGeneratedEntries.filter(e => {
-          const entryDate = parseDateInTimezone(e.date, timezone);
-          return entryDate >= weekStart && entryDate <= endOfWeek(weekStart);
-      });
-
-      const weeklyIncome = weekEntries.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
-      const weeklyBills = weekEntries.filter(e => e.type === 'bill').reduce((sum, e) => sum + e.amount, 0);
-      const weeklyStatus = weeklyIncome - weeklyBills;
-      
-      const allHolidays = getHolidaysForYear(new Date().getFullYear());
-      const next30Days = {start: new Date(), end: add(new Date(), {days: 30})};
-      
-      const seasonalEventsNext30d: SeasonalEvent[] = [];
-      allHolidays.forEach(h => {
-        if(isWithinInterval(h.date, next30Days)) {
-            seasonalEventsNext30d.push({date: format(h.date, 'yyyy-MM-dd'), name: h.name, expected_spend: 50})
-        }
-      });
-      birthdays.forEach(b => {
-        const [month, day] = b.date.split('-').map(Number);
-        const bdayDate = set(new Date(), {month: month - 1, date: day});
-        if(isWithinInterval(bdayDate, next30Days)) {
-             seasonalEventsNext30d.push({date: format(bdayDate, 'yyyy-MM-dd'), name: b.name, expected_spend: b.budget || 50 })
-        }
-      });
-      
-      setIsDataReady(true);
-      return {
-        dayEntries,
-        weeklyTotals: {
-            income: weeklyIncome,
-            bills: weeklyBills,
-            net: endOfWeekBalance,
-            startOfWeekBalance: startOfWeekBalance,
-            status: weeklyStatus,
-        },
-        dojoRank: rank,
-        seasonalEvents: seasonalEventsNext30d,
-        seasonalEventsNext30d,
-      }
-  }, [selectedDate, allGeneratedEntries, timezone, weeklyBalances, birthdays, goals]);
+    
+    return events;
+  }, [birthdays, timezone]);
+  
 
   useEffect(() => {
-    if (!dojoRank) return;
-
-    if (previousDojoRankRef.current && previousDojoRankRef.current.level < dojoRank.level) {
-       toast({
-          title: "Dojo Promotion!",
-          description: `The path of the Grasshoppa blossoms—${dojoRank.name} unlocked!`,
-        });
-        if (confettiRef.current) {
-            confettiRef.current.addConfetti({
-                confettiColors: [dojoRank.belt.color, '#FFFFFF', '#FBBF24'],
-                confettiNumber: 100,
-            });
+    if (budgetScore) {
+      setBudgetScoreHistory(prevHistory => {
+        const todayStr = format(new Date(), 'yyyy-MM-dd');
+        const yesterdayStr = format(subMonths(new Date(), 1), 'yyyy-MM-dd');
+        
+        const lastEntryDate = prevHistory.length > 0 ? prevHistory[prevHistory.length - 1].date : null;
+        
+        if (lastEntryDate !== todayStr) {
+           const newHistory = [...prevHistory.filter(h => h.date > yesterdayStr), budgetScore];
+           return newHistory;
         }
+        return prevHistory;
+      });
     }
+  }, [budgetScore, setBudgetScoreHistory]);
 
-    previousDojoRankRef.current = dojoRank;
-  }, [dojoRank, toast]);
+  useEffect(() => {
+    const today = new Date();
+    const todayStr = format(today, 'yyyy-MM-dd');
+    if(lastWelcomeMessage?.date !== todayStr) {
+        const randomMessage = welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)];
+        toast({ title: 'A Word from Sensei', description: randomMessage });
+        setLastWelcomeMessage({ message: randomMessage, date: todayStr });
+    }
+  }, [lastWelcomeMessage, toast, setLastWelcomeMessage]);
 
-  if (authLoading) {
-    return <CentseiLoader isAuthLoading={true} />;
-  }
 
-  if (!user && !isGuest) {
-    return <CentseiLoader isAuthLoading={true} />;
+  useEffect(() => {
+    if (!authLoading && !user && !isGuest) {
+        router.replace('/login');
+    }
+  }, [user, isGuest, authLoading, router]);
+
+  const rootRef = useRef<HTMLDivElement>(null);
+
+
+  if (authLoading || (!user && !isGuest)) {
+    return <CentseiLoader isAuthLoading />;
   }
   
-  return (
-    <div className="flex h-screen w-full flex-col bg-background">
-      <header className="flex h-20 items-center justify-between border-b px-4 md:px-6 shrink-0">
-        <div className="flex items-center gap-2">
-            <Image src="/CentseiLogo.png" alt="Centsei Logo" width={80} height={26} style={{ height: 'auto'}} />
-        </div>
-        <div className="flex items-center gap-2">
-          {!isSelectionMode && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" className="hidden md:flex">
-                  Menu <ChevronDown className="ml-2 h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onSelect={() => openNewEntryDialog(new Date())}>
-                  <Plus className="mr-2 h-4 w-4" /> Add Entry
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => setScoreWidgetOpen(true)}>
-                    <TrendingUp className="mr-2 h-4 w-4" /> Sensei's Evaluation
-                </DropdownMenuItem>
-                 <DropdownMenuItem onSelect={() => setDojoWidgetOpen(true)}>
-                    <Trophy className="mr-2 h-4 w-4" /> Dojo Journey
-                </DropdownMenuItem>
-                 <DropdownMenuItem onSelect={() => setGoalsDialogOpen(true)}>
-                    <Target className="mr-2 h-4 w-4" /> Zen Savings
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => sensei.showFavorites()}>
-                    <Heart className="mr-2 h-4 w-4" /> Favorite Mantras
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => setEnsoInsightsOpen(true)}>
-                  <AreaChart className="mr-2 h-4 w-4" /> Enso Insights
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setSummaryDialogOpen(true)}>
-                  <BarChartBig className="mr-2 h-4 w-4" /> Monthly Summary
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setBreakdownDialogOpen(true)}>
-                  <PieChart className="mr-2 h-4 w-4" /> Category Breakdown
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-           {isSelectionMode && selectedInstances.length > 0 && (
-            <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => setBulkCompleteAlertOpen(true)}>
-                    <CheckCircle2 className="mr-2 h-4 w-4" /> Mark as Complete ({selectedInstances.length})
-                </Button>
-                <Button variant="destructive" size="sm" onClick={() => setBulkDeleteAlertOpen(true)}>
-                    <Trash2 className="mr-2 h-4 w-4" /> Delete ({selectedInstances.length})
-                </Button>
-            </div>
-           )}
-          <Button onClick={() => setCalculatorDialogOpen(true)} variant="ghost" size="icon">
-            <Calculator className="h-5 w-5" />
-          </Button>
-          <Button onClick={() => setSettingsDialogOpen(true)} variant="ghost" size="icon">
-            <Settings className="h-5 w-5" />
-          </Button>
+  if (!authLoading && !user && isGuest) {
+      // Potentially show a "continue as guest" splash screen before rendering dashboard
+  }
 
-          {user ? (
-            <DropdownMenu>
+  return (
+    <>
+      <div ref={rootRef} className="flex h-screen w-full flex-col bg-background">
+        <header className="flex h-20 items-center justify-between border-b px-4 md:px-6 shrink-0">
+          <div className="flex items-center gap-2">
+            <Image src="/CentseiLogo.png" alt="Centsei Logo" width={80} height={26} />
+          </div>
+          <div className="flex items-center gap-2">
+            {isMobile && (
+              <div
+                ref={mobileMenuFabRef}
+                className="fixed z-50"
+                style={{
+                  right: `${mobileMenuPosition.x}px`,
+                  bottom: `${mobileMenuPosition.y}px`,
+                }}
+                {...mobileMenuHandlers}
+              >
+                 <Sheet open={isMobileSheetOpen} onOpenChange={setMobileSheetOpen}>
+                    <SheetTrigger asChild>
+                      <Button
+                        aria-label="Open Menu"
+                        className={cn(
+                          "h-16 w-16 rounded-full shadow-xl flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 touch-none",
+                          isMobileMenuDragging && "cursor-grabbing"
+                        )}
+                      >
+                         <Menu />
+                      </Button>
+                    </SheetTrigger>
+                    <SheetContent side="left" className="p-0 flex flex-col w-3/4">
+                      <SheetHeader className="p-4 border-b">
+                        <SheetTitle>Pay Period</SheetTitle>
+                      </SheetHeader>
+                      <ScrollArea className="flex-1">
+                        <SidebarContent periods={payPeriods} activeIndex={activePeriodIndex} initialBalance={initialBalance} />
+                      </ScrollArea>
+                    </SheetContent>
+                  </Sheet>
+              </div>
+            )}
+
+            {!isMobile && (
+              <>
+                <Button variant="ghost" size="icon" onClick={() => setCalculatorOpen(true)}>
+                  <Calculator className="h-5 w-5" />
+                  <span className="sr-only">Calculator</span>
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => setSettingsDialogOpen(true)}>
+                  <Settings className="h-5 w-5" />
+                  <span className="sr-only">Settings</span>
+                </Button>
+              </>
+            )}
+             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="relative h-10 w-10 rounded-full">
-                      <Avatar className="h-10 w-10">
-                          <AvatarImage src={user.photoURL ?? ''} alt={user.displayName ?? 'User'} />
-                          <AvatarFallback>{user.displayName?.charAt(0)}</AvatarFallback>
-                      </Avatar>
-                  </Button>
+                <Button variant="ghost" className="relative h-10 w-10 rounded-full">
+                  <Avatar>
+                    <AvatarImage src={user?.photoURL || undefined} alt={user?.displayName || "Guest"}/>
+                    <AvatarFallback>{user?.displayName?.[0] || 'G'}</AvatarFallback>
+                  </Avatar>
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>{user.displayName}</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={signOut}>
-                      <LogOut className="mr-2 h-4 w-4" />
-                      Sign Out
-                  </DropdownMenuItem>
+                <DropdownMenuLabel>{user?.displayName || 'Guest User'}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setMonthlySummaryOpen(true)}><PieChart className="mr-2 h-4 w-4" />Monthly Summary</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setMonthlyBreakdownOpen(true)}><BarChartBig className="mr-2 h-4 w-4" />Category Breakdown</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSenseiEvalOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDojoJourneyOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
+                {isMobile && (
+                  <>
+                    <DropdownMenuSeparator />
+                     <DropdownMenuItem onClick={() => setCalculatorOpen(true)}><Calculator className="mr-2 h-4 w-4" />Calculator</DropdownMenuItem>
+                     <DropdownMenuItem onClick={() => setSettingsDialogOpen(true)}><Settings className="mr-2 h-4 w-4"/>Settings</DropdownMenuItem>
+                  </>
+                )}
+                <DropdownMenuSeparator />
+                 <DropdownMenuItem onClick={() => senseiSays.showFavorites()}><Heart className="mr-2 h-4 w-4" />Favorite Mantras</DropdownMenuItem>
+                 <DropdownMenuItem onClick={signOut}><LogOut className="mr-2 h-4 w-4" />Sign Out</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-           ) : isGuest ? (
-            <Button onClick={() => router.push('/login')} variant="default" size="sm">
-                Sign in to sync
+          </div>
+        </header>
+
+        <CentseiCalendar
+          entries={entries}
+          generatedEntries={allGeneratedEntries}
+          timezone={timezone}
+          openNewEntryDialog={openNewEntryDialog}
+          setEditingEntry={setEditingEntry}
+          selectedDate={selectedDate}
+          setSelectedDate={setSelectedDate}
+          setEntryDialogOpen={setEntryDialogOpen}
+          openDayEntriesDialog={(holidays, birthdays) => {
+            if(holidays.length > 0 || birthdays.length > 0 || allGeneratedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), selectedDate || new Date())).length > 0) {
+              setDayEntriesDialogOpen(true);
+            }
+          }}
+          isReadOnly={false}
+          payPeriods={payPeriods}
+          isSelectionMode={isSelectionMode}
+          toggleSelectionMode={() => setSelectionMode(!isSelectionMode)}
+          selectedInstances={selectedInstances}
+          setSelectedInstances={setSelectedInstances}
+          onBulkDelete={() => {
+              if (selectedInstances.length > 0) {
+                  handleBulkDelete();
+              }
+          }}
+          onMoveRequest={(entry, newDate) => {
+            if (entry.recurrence === 'none') {
+                handleMoveEntry(entry, newDate, false);
+            } else {
+                setMoveRequest({ entry, newDate });
+            }
+          }}
+          birthdays={birthdays}
+          budgetScore={budgetScore}
+          dojoRank={dojoRank}
+          goals={goals}
+          onScoreInfoClick={() => setScoreInfoOpen(true)}
+          onScoreHistoryClick={() => setScoreHistoryOpen(true)}
+          onDojoInfoClick={() => setDojoInfoOpen(true)}
+          activePeriodIndex={activePeriodIndex}
+          initialBalance={initialBalance}
+          onInstancePaidToggle={handleInstancePaidToggle}
+        />
+        
+        {!isMobile && (
+            <Button 
+                onClick={() => openNewEntryDialog(selectedDate ?? new Date())} 
+                className="fixed bottom-8 right-8 h-16 w-16 rounded-full shadow-xl"
+            >
+                <Plus className="h-8 w-8" />
+                <span className="sr-only">Add new entry</span>
             </Button>
-           ) : null}
+        )}
+      </div>
 
-
-          {isMobile && (
-            <Sheet open={isMobileSheetOpen} onOpenChange={setMobileSheetOpen}>
-              <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon"><Menu /></Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-[300px] sm:w-[400px] p-0 flex flex-col bg-secondary/30">
-                 <SheetHeader className="p-4 md:p-6 border-b shrink-0 bg-background">
-                    <SheetTitle>Menu</SheetTitle>
-                    <SheetDescription>
-                        Weekly summary for {format(selectedDate, "MMM d, yyyy")}.
-                    </SheetDescription>
-                </SheetHeader>
-                <ScrollArea className="flex-1">
-                   <div className="p-4 flex flex-col gap-2">
-                     <Button onClick={() => { setScoreWidgetOpen(true); setMobileSheetOpen(false); }} variant="outline" className="w-full justify-start">
-                        <TrendingUp className="mr-2 h-4 w-4" /> Sensei's Evaluation
-                    </Button>
-                     <Button onClick={() => { setDojoWidgetOpen(true); setMobileSheetOpen(false); }} variant="outline" className="w-full justify-start">
-                        <Trophy className="mr-2 h-4 w-4" /> Dojo Journey
-                    </Button>
-                     <Button onClick={() => { setGoalsDialogOpen(true); setMobileSheetOpen(false); }} variant="outline" className="w-full justify-start">
-                        <Target className="mr-2 h-4 w-4" /> Zen Savings
-                    </Button>
-                     <Button onClick={() => { sensei.showFavorites(); setMobileSheetOpen(false); }} variant="outline" className="w-full justify-start">
-                        <Heart className="mr-2 h-4 w-4" /> Favorite Mantras
-                    </Button>
-                  </div>
-                  <Separator className="my-2" />
-                  {isDataReady ? (
-                    <SidebarContent
-                        weeklyTotals={weeklyTotals}
-                        selectedDate={selectedDate}
-                    />
-                  ) : <p className="p-4 text-center text-sm text-muted-foreground">Calculating...</p>}
-                   <div className="p-4 flex flex-col gap-2 border-t">
-                     <Button onClick={() => { setEnsoInsightsOpen(true); setMobileSheetOpen(false); }} variant="outline" className="w-full">
-                        <AreaChart className="mr-2 h-4 w-4" /> Enso Insights
-                     </Button>
-                     <Button onClick={() => { setSummaryDialogOpen(true); setMobileSheetOpen(false); }} variant="outline" className="w-full">
-                        <BarChartBig className="mr-2 h-4 w-4" /> Monthly Summary
-                    </Button>
-                     <Button onClick={() => { setBreakdownDialogOpen(true); setMobileSheetOpen(false); }} variant="outline" className="w-full">
-                        <PieChart className="mr-2 h-4 w-4" /> Category Breakdown
-                    </Button>
-                  </div>
-                </ScrollArea>
-              </SheetContent>
-            </Sheet>
-          )}
-        </div>
-      </header>
-      
-      {isDataReady ? (
-        <>
-            <CentseiCalendar 
-                entries={entries}
-                setEntries={user ? () => {} : setLocalEntries}
-                generatedEntries={allGeneratedEntries}
-                timezone={timezone}
-                openNewEntryDialog={openNewEntryDialog}
-                setEditingEntry={setEditingEntry}
-                setSelectedDate={setSelectedDate}
-                setEntryDialogOpen={setEntryDialogOpen}
-                openDayEntriesDialog={openDayEntriesDialog}
-                weeklyBalances={weeklyBalances}
-                weeklyTotals={weeklyTotals}
-                isSelectionMode={isSelectionMode}
-                toggleSelectionMode={toggleSelectionMode}
-                selectedInstances={selectedInstances}
-                setSelectedInstances={setSelectedInstances}
-                onBulkDelete={() => setBulkDeleteAlertOpen(true)}
-                onMoveRequest={(entry, newDate) => setMoveOperation({ entry, newDate })}
-                birthdays={birthdays}
-            />
-            <SenseiSaysUI 
-                sensei={sensei}
-                budgetScore={budgetScore}
-                dojoRank={dojoRank}
-                weeklyTotals={weeklyTotals}
-                seasonalEvents={seasonalEventsNext30d}
-                goals={goals}
-            />
-        </>
-      ) : (
-        <div className="flex-1 flex items-center justify-center">
-            <CentseiLoader isAuthLoading={true} />
-        </div>
-      )}
-      
-      <EntryDialog 
+      <EntryDialog
         isOpen={isEntryDialogOpen}
         onClose={() => setEntryDialogOpen(false)}
-        onSave={handleEntrySave}
-        onDelete={handleEntryDelete}
-        onCopy={handleEntryCopy}
+        onSave={handleSaveEntry}
+        onCopy={handleCopyEntry}
+        onDelete={handleDeleteConfirmation}
         entry={editingEntry}
-        selectedDate={selectedDate}
+        selectedDate={selectedDate || new Date()}
         timezone={timezone}
       />
-      
-      <DayEntriesDialog
-        isOpen={isDayEntriesDialogOpen}
-        onClose={() => setDayEntriesDialogOpen(false)}
-        date={selectedDate}
-        entries={dayEntries}
-        holidays={dayDialogHolidays}
-        birthdays={dayDialogBirthdays}
-        onAddEntry={() => {
-            setDayEntriesDialogOpen(false);
-            openNewEntryDialog(selectedDate);
-        }}
-        onEditEntry={(entry) => {
-            setDayEntriesDialogOpen(false);
-            setEditingEntry(entry);
-            setEntryDialogOpen(true);
-        }}
-      />
-
-       <MonthlyBreakdownDialog
-        isOpen={isBreakdownDialogOpen}
-        onClose={() => setBreakdownDialogOpen(false)}
-        entries={allGeneratedEntries}
-        currentMonth={selectedDate}
-        timezone={timezone}
-      />
-      
-       <MonthlySummaryDialog
-        isOpen={isSummaryDialogOpen}
-        onClose={() => setSummaryDialogOpen(false)}
-        allEntries={allGeneratedEntries}
-        initialMonth={selectedDate}
-        weeklyBalances={weeklyBalances}
-        timezone={timezone}
-      />
-
-      <CalculatorDialog
-        isOpen={isCalculatorDialogOpen}
-        onClose={() => setCalculatorDialogOpen(false)}
-      />
-      
-      <GoalsDialog
-        isOpen={isGoalsDialogOpen}
-        onClose={() => setGoalsDialogOpen(false)}
-        goals={goals}
-        onSaveGoal={handleSaveGoal}
-        onDeleteGoal={handleDeleteGoal}
-      />
-
-      <BirthdaysDialog
-        isOpen={isBirthdaysDialogOpen}
-        onClose={() => setBirthdaysDialogOpen(false)}
-        birthdays={birthdays}
-        onSaveBirthday={handleSaveBirthday}
-        onDeleteBirthday={handleDeleteBirthday}
-       />
-      
-      <EnsoInsightsDialog
-        isOpen={isEnsoInsightsOpen}
-        onClose={() => setEnsoInsightsOpen(false)}
-        entries={allGeneratedEntries}
-        goals={goals}
-        birthdays={birthdays}
-        timezone={timezone}
-      />
-
-      <SettingsDialog 
+      <SettingsDialog
         isOpen={isSettingsDialogOpen}
         onClose={() => setSettingsDialogOpen(false)}
-        rolloverPreference={rollover}
-        onRolloverPreferenceChange={setRollover}
+        rolloverPreference={rolloverPreference}
+        onRolloverPreferenceChange={setRolloverPreference}
         timezone={timezone}
         onTimezoneChange={setTimezone}
         onNotificationsToggle={handleNotificationsToggle}
-        onManageBirthdays={() => setBirthdaysDialogOpen(true)}
-        entries={user ? entries : localEntries}
-        onEntriesChange={setLocalEntries}
-        goals={user ? goals : localGoals}
-        onGoalsChange={setLocalGoals}
-        birthdays={user ? birthdays : localBirthdays}
-        onBirthdaysChange={setLocalBirthdays}
+        onManageBirthdays={() => setBirthdaysOpen(true)}
+        entries={entries}
+        onEntriesChange={setEntries}
+        goals={goals}
+        onGoalsChange={setGoals}
+        birthdays={birthdays}
+        onBirthdaysChange={setBirthdays}
+        initialBalance={initialBalance}
+        onInitialBalanceChange={setInitialBalance}
       />
+       {selectedDate && <DayEntriesDialog
+        isOpen={isDayEntriesDialogOpen}
+        onClose={() => setDayEntriesDialogOpen(false)}
+        date={selectedDate}
+        entries={allGeneratedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), selectedDate))}
+        holidays={getHolidaysForYear(getYear(selectedDate)).filter(h => isSameDay(h.date, selectedDate))}
+        birthdays={birthdays.filter(b => {
+             if (typeof b.date !== 'string' || !b.date.includes('-')) return false;
+             const [bMonth, bDay] = b.date.split('-').map(Number);
+             return getMonth(selectedDate) + 1 === bMonth && selectedDate.getDate() === bDay;
+        })}
+        onAddEntry={handleAddFromDayDialog}
+        onEditEntry={handleEditFromDayDialog}
+        onDeleteEntry={handleDeleteConfirmation}
+        onReorder={handleReorder}
+      />}
+      <MonthlyBreakdownDialog
+        isOpen={isMonthlyBreakdownOpen}
+        onClose={() => setMonthlyBreakdownOpen(false)}
+        entries={allGeneratedEntries}
+        currentMonth={currentMonth}
+        timezone={timezone}
+      />
+       <MonthlySummaryDialog
+        isOpen={isMonthlySummaryOpen}
+        onClose={() => setMonthlySummaryOpen(false)}
+        periods={payPeriods}
+       />
+       <CalculatorDialog
+         isOpen={isCalculatorOpen}
+         onClose={() => setCalculatorOpen(false)}
+        />
+        <GoalsDialog
+            isOpen={isGoalsOpen}
+            onClose={() => setGoalsOpen(false)}
+            goals={goals}
+            onSaveGoal={handleSaveGoal}
+            onDeleteGoal={handleDeleteGoal}
+        />
+        <BirthdaysDialog
+            isOpen={isBirthdaysOpen}
+            onClose={() => setBirthdaysOpen(false)}
+            birthdays={birthdays}
+            onSaveBirthday={handleSaveBirthday}
+            onDeleteBirthday={handleDeleteBirthday}
+        />
+         <EnsoInsightsDialog
+            isOpen={isEnsoInsightsOpen}
+            onClose={() => setEnsoInsightsOpen(false)}
+            entries={allGeneratedEntries}
+            goals={goals}
+            birthdays={birthdays}
+            timezone={timezone}
+        />
+        <BudgetScoreInfoDialog isOpen={isScoreInfoOpen} onClose={() => setScoreInfoOpen(false)} />
+        <BudgetScoreHistoryDialog isOpen={isScoreHistoryOpen} onClose={() => setScoreHistoryOpen(false)} history={budgetScoreHistory} />
+        <DojoJourneyInfoDialog isOpen={isDojoInfoOpen} onClose={() => setDojoInfoOpen(false)} />
+        <SenseiEvaluationDialog 
+            isOpen={isSenseiEvalOpen} 
+            onClose={() => setSenseiEvalOpen(false)}
+            budgetScore={budgetScore}
+            onInfoClick={() => setScoreInfoOpen(true)}
+            onHistoryClick={() => setScoreHistoryOpen(true)}
+        />
+        <DojoJourneyDialog 
+            isOpen={isDojoJourneyOpen}
+            onClose={() => setDojoJourneyOpen(false)}
+            rank={dojoRank}
+            onInfoClick={() => setDojoInfoOpen(true)}
+        />
 
-       <AlertDialog open={isBulkDeleteAlertOpen} onOpenChange={setBulkDeleteAlertOpen}>
+
+      <AlertDialog open={!!updateRequest || !!entryToDelete || !!moveRequest} onOpenChange={(open) => {
+        if (!open) {
+            setUpdateRequest(null);
+            setEntryToDelete(null);
+            setMoveRequest(null);
+        }
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogTitle>Update Recurring Entry</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. It will remove the {selectedInstances.length} selected occurrence(s). For recurring entries, only the chosen occurrence(s) will be removed — the series remains intact.
+              {moveRequest ? "How would you like to move this entry?" : entryToDelete ? "Delete this recurring entry?" : "How would you like to update this entry?"}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleBulkDelete} className="bg-destructive hover:bg-destructive/90">
-              Delete
-            </AlertDialogAction>
+          <div className="space-y-4 py-4">
+              <Button className="w-full" onClick={() => {
+                  if(updateRequest) handleSaveEntry(updateRequest.entry, false);
+                  if(entryToDelete) handleDeleteEntry(entryToDelete.instanceId, false);
+                  if(moveRequest) handleMoveEntry(moveRequest.entry, moveRequest.newDate, false);
+              }}>
+                 Just this one
+                 <p className="font-normal text-xs text-muted-foreground/80 ml-2">Applies changes to this occurrence only.</p>
+              </Button>
+              <Button className="w-full" variant="secondary" onClick={() => {
+                  if(updateRequest) handleSaveEntry(updateRequest.entry, true);
+                  if(entryToDelete) handleDeleteEntry(entryToDelete.instanceId, true);
+                  if(moveRequest) handleMoveEntry(moveRequest.entry, moveRequest.newDate, true);
+              }}>
+                  This and Future
+                 <p className="font-normal text-xs text-muted-foreground/80 ml-2">Updates all entries in this series.</p>
+              </Button>
+          </div>
+          <AlertDialogFooter className="!justify-center">
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
       
-      <AlertDialog open={isBulkCompleteAlertOpen} onOpenChange={setBulkCompleteAlertOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Mark as Complete</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will mark the {selectedInstances.length} selected entries as complete. Are you sure?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleBulkMarkAsComplete}>
-              Mark as Complete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      
-       <AlertDialog open={!!moveOperation} onOpenChange={(isOpen) => !isOpen && setMoveOperation(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm Move</AlertDialogTitle>
-            <AlertDialogDescription>
-                This will move this occurrence of the entry. Continue?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setMoveOperation(null)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmMove}>
-              Confirm
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <BudgetScoreInfoDialog
-        isOpen={isScoreInfoDialogOpen}
-        onClose={() => setScoreInfoDialogOpen(false)}
+      <SenseiSaysUI 
+        sensei={senseiSays}
+        budgetScore={budgetScore}
+        dojoRank={dojoRank}
+        weeklyTotals={{income: 0, bills: 0, net: 0}}
+        seasonalEvents={seasonalEvents}
+        goals={goals}
       />
-
-      <BudgetScoreHistoryDialog
-        isOpen={isScoreHistoryDialogOpen}
-        onClose={() => setScoreHistoryDialogOpen(false)}
-        history={budgetScores}
-      />
-      
-      <DojoJourneyInfoDialog
-        isOpen={isDojoInfoDialogOpen}
-        onClose={() => setDojoInfoDialogOpen(false)}
-      />
-      
-      {budgetScore && (
-        <Dialog open={isScoreWidgetOpen} onOpenChange={setScoreWidgetOpen}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Sensei's Evaluation</DialogTitle>
-                    <DialogDescription>A snapshot of your financial health over the last 30 days.</DialogDescription>
-                </DialogHeader>
-                <BudgetScoreWidget score={budgetScore} onInfoClick={() => setScoreInfoDialogOpen(true)} onHistoryClick={() => setScoreHistoryDialogOpen(true)} />
-            </DialogContent>
-        </Dialog>
-      )}
-
-      {dojoRank && (
-        <Dialog open={isDojoWidgetOpen} onOpenChange={setDojoWidgetOpen}>
-             <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Dojo Journey</DialogTitle>
-                    <DialogDescription>Track your progress toward financial mastery by growing your savings.</DialogDescription>
-                </DialogHeader>
-                <DojoJourneyWidget rank={dojoRank} onInfoClick={() => setDojoInfoDialogOpen(true)} />
-            </DialogContent>
-        </Dialog>
-      )}
-
-      {showMigrationDialog && user && (
-          <MigrationDialog 
-            isOpen={showMigrationDialog}
-            onClose={() => {
-                setShowMigrationDialog(false);
-                exitGuest();
-            }}
-            localData={{ entries: localEntries, goals: localGoals, birthdays: localBirthdays }}
-            user={user}
-          />
-      )}
-    </div>
+    </>
   );
 }

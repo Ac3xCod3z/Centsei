@@ -17,7 +17,7 @@ import {
   subDays,
 } from 'date-fns';
 import type { Entry, BillCategory } from './types';
-import { parseDateInTimezone } from './utils';
+import { parseDateInTimezone } from './time';
 
 export type Granularity = 'week' | 'month' | 'year';
 
@@ -67,7 +67,7 @@ export const aggregateData = (
 ): AggregatedDataPoint[] => {
   if (entries.length === 0) return [];
 
-  const { start, end, each, format: dateFormat } = getIntervalFunctions(granularity);
+  const { end, each, format: dateFormat } = getIntervalFunctions(granularity);
 
   const periods = each({
     start: dateRange.start,
