@@ -1,3 +1,4 @@
+
 import { Entry } from './types';
 import { formatCurrency } from './utils';
 import { add, isAfter, isBefore, set } from 'date-fns';
@@ -7,11 +8,16 @@ import { parseDateInTimezone } from './time';
 const NOTIFICATION_TAG_PREFIX = 'centsei-bill-';
 const NOTIFICATION_WINDOW_DAYS = 90; // Schedule notifications for the next 90 days.
 
-async function getServiceWorkerRegistration() {
+async function getServiceWorkerRegistration(): Promise<ServiceWorkerRegistration | null> {
   if (!('serviceWorker' in navigator)) {
     return null;
   }
-  return navigator.serviceWorker.ready;
+  try {
+    return await navigator.serviceWorker.ready;
+  } catch (error) {
+    console.error("Error getting service worker registration:", error);
+    return null;
+  }
 }
 
 export async function cancelAllNotificationsLocal(toast: any) {
