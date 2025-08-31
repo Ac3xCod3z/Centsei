@@ -20,6 +20,7 @@ import {
   setDoc
 } from "firebase/firestore";
 import { firestore } from '@/lib/firebase';
+import { ensurePersonalCalendar } from '@/lib/calendars';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -249,6 +250,7 @@ export default function CentseiDashboard() {
   const [entries, setEntries] = useLocalStorage<MasterEntry[]>('centseiEntries', []);
   const [goals, setGoals] = useLocalStorage<Goal[]>('centseiGoals', []);
   const [birthdays, setBirthdays] = useLocalStorage<Birthday[]>('centseiBirthdays', []);
+  const [activeCalendarId, setActiveCalendarId] = useLocalStorage<string | null>('centseiActiveCalendarId', null);
   const [rolloverPreference, setRolloverPreference] = useLocalStorage<RolloverPreference>('centseiRollover', 'carryover');
   const [timezone, setTimezone] = useLocalStorage<string>('centseiTimezone', Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [notificationsEnabled, setNotificationsEnabled] = useLocalStorage('centseiNotificationsEnabled', false);
@@ -296,17 +298,23 @@ export default function CentseiDashboard() {
     onClick: () => setMobileSheetOpen(true),
   });
 
-  // Use Firestore for data if user is logged in
+  // Ensure calendar and load calendar-scoped data
   useEffect(() => {
     if (!user) {
         // If user logs out, the useLocalStorage hooks will take over.
         settingsLoadedRef.current = null; // Reset for potential re-login
         return;
     }
-    const entriesQuery = query(collection(firestore, 'users', user.uid, 'calendar_entries'));
-    const goalsQuery = query(collection(firestore, 'users', user.uid, 'goals'));
-    const birthdaysQuery = query(collection(firestore, 'users', user.uid, 'birthdays'));
-    
+    (async () => {
+      let calId = activeCalendarId;
+      if (!calId) {
+        calId = await ensurePersonalCalendar(firestore, user.uid);
+        setActiveCalendarId(calId);
+      }
+      const entriesQuery = query(collection(firestore, 'calendars', calId!, 'calendar_entries'));
+      const goalsQuery = query(collection(firestore, 'calendars', calId!, 'goals'));
+      const birthdaysQuery = query(collection(firestore, 'calendars', calId!, 'birthdays'));
+
     const settingsDocRef = doc(firestore, 'users', user.uid);
     const unsubSettings = onSnapshot(settingsDocRef, (doc) => {
         // Prevent infinite loop by only setting state once per user login
@@ -343,7 +351,8 @@ export default function CentseiDashboard() {
         unsubBirthdays();
         unsubSettings();
     };
-  }, [user, setEntries, setGoals, setBirthdays, setRolloverPreference, setTimezone, setNotificationsEnabled, setInitialBalance]);
+    })();
+  }, [user, activeCalendarId, setActiveCalendarId, setEntries, setGoals, setBirthdays, setRolloverPreference, setTimezone, setNotificationsEnabled, setInitialBalance]);
 
 
   useEffect(() => {
@@ -429,15 +438,15 @@ export default function CentseiDashboard() {
             updatedEntry = updateSingleOccurrence(masterEntry, originalDate || saveData.date, saveData);
         }
 
-        if (user) {
-            await updateDoc(doc(firestore, 'users', user.uid, 'calendar_entries', masterId), stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
+        if (user && activeCalendarId) {
+            await updateDoc(doc(firestore, 'calendars', activeCalendarId, 'calendar_entries', masterId), stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
         } else {
             setEntries(prev => prev.map(e => (e.id === masterId ? updatedEntry : e)));
         }
     } else { // New entry
         const newEntryData = { ...saveData, created_at: serverTimestamp(), updated_at: serverTimestamp() };
-        if (user) {
-            await addDoc(collection(firestore, 'users', user.uid, 'calendar_entries'), stripUndefined(newEntryData));
+        if (user && activeCalendarId) {
+            await addDoc(collection(firestore, 'calendars', activeCalendarId, 'calendar_entries'), stripUndefined(newEntryData));
         } else {
             setEntries(prev => [...prev, { ...newEntryData, id: crypto.randomUUID() }]);
         }
@@ -473,8 +482,8 @@ export default function CentseiDashboard() {
     if (!instanceId) return;
     const masterId = getOriginalIdFromInstance(instanceId);
     
-    if (user && firestore) {
-        const masterDocRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
+    if (user && firestore && activeCalendarId) {
+        const masterDocRef = doc(firestore, 'calendars', activeCalendarId, 'calendar_entries', masterId);
         if (isSeriesDelete) {
             await deleteDoc(masterDocRef);
         } else {
@@ -517,7 +526,7 @@ export default function CentseiDashboard() {
   };
   
   const handleBulkDelete = async () => {
-     if (user) {
+     if (user && activeCalendarId) {
         const batch = writeBatch(firestore);
         const masterUpdates = new Map<string, any>();
         
@@ -526,7 +535,7 @@ export default function CentseiDashboard() {
             if(!masterEntry) continue;
             
             if(masterEntry.recurrence === 'none') {
-                const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', instance.masterId);
+                const docRef = doc(firestore, 'calendars', activeCalendarId, 'calendar_entries', instance.masterId);
                 batch.delete(docRef);
             } else {
                 const currentUpdates = masterUpdates.get(instance.masterId) || { exceptions: { ...masterEntry.exceptions } };
@@ -587,11 +596,11 @@ export default function CentseiDashboard() {
   // Moved to useEntrySeriesActions
 
   const handleSaveGoal = async (goal: Omit<Goal, 'id'> & { id?: string }) => {
-    if (user) {
+    if (user && activeCalendarId) {
         if (goal.id) {
-            await updateDoc(doc(firestore, 'users', user.uid, 'goals', goal.id), { ...goal, updated_at: serverTimestamp() });
+            await updateDoc(doc(firestore, 'calendars', activeCalendarId, 'goals', goal.id), { ...goal, updated_at: serverTimestamp() });
         } else {
-            await addDoc(collection(firestore, 'users', user.uid, 'goals'), { ...goal, created_at: serverTimestamp(), updated_at: serverTimestamp() });
+            await addDoc(collection(firestore, 'calendars', activeCalendarId, 'goals'), { ...goal, created_at: serverTimestamp(), updated_at: serverTimestamp() });
         }
     } else {
         setGoals(prev => goal.id ? prev.map(g => g.id === goal.id ? {...g, ...goal} : g) : [...prev, {...goal, id: crypto.randomUUID()}] );
@@ -599,19 +608,19 @@ export default function CentseiDashboard() {
   }
   
   const handleDeleteGoal = async (id: string) => {
-    if (user) {
-        await deleteDoc(doc(firestore, 'users', user.uid, 'goals', id));
+    if (user && activeCalendarId) {
+        await deleteDoc(doc(firestore, 'calendars', activeCalendarId, 'goals', id));
     } else {
         setGoals(prev => prev.filter(g => g.id !== id));
     }
   }
   
   const handleSaveBirthday = async (birthday: Omit<Birthday, 'id'> & { id?: string }) => {
-    if (user) {
+    if (user && activeCalendarId) {
         if (birthday.id) {
-            await updateDoc(doc(firestore, 'users', user.uid, 'birthdays', birthday.id), { ...birthday, updated_at: serverTimestamp() });
+            await updateDoc(doc(firestore, 'calendars', activeCalendarId, 'birthdays', birthday.id), { ...birthday, updated_at: serverTimestamp() });
         } else {
-            await addDoc(collection(firestore, 'users', user.uid, 'birthdays'), { ...birthday, created_at: serverTimestamp(), updated_at: serverTimestamp() });
+            await addDoc(collection(firestore, 'calendars', activeCalendarId, 'birthdays'), { ...birthday, created_at: serverTimestamp(), updated_at: serverTimestamp() });
         }
     } else {
       setBirthdays(prev => birthday.id ? prev.map(b => b.id === birthday.id ? {...b, ...birthday} : b) : [...prev, {...birthday, id: crypto.randomUUID()}] );
@@ -619,8 +628,8 @@ export default function CentseiDashboard() {
   }
   
   const handleDeleteBirthday = async (id: string) => {
-     if (user) {
-        await deleteDoc(doc(firestore, 'users', user.uid, 'birthdays', id));
+     if (user && activeCalendarId) {
+        await deleteDoc(doc(firestore, 'calendars', activeCalendarId, 'birthdays', id));
     } else {
       setBirthdays(prev => prev.filter(b => b.id !== id));
     }
@@ -753,6 +762,7 @@ export default function CentseiDashboard() {
   const { handleMoveEntry, handleInstancePaidToggle, handleReorder } = useEntrySeriesActions({
     user,
     firestore,
+    calendarId: activeCalendarId || '',
     entries,
     setEntries,
     timezone,

@@ -13,6 +13,7 @@ type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
 type Params = {
   user: any;
   firestore: any;
+  calendarId: string;
   entries: MasterEntry[];
   setEntries: Setter<MasterEntry[]>;
   timezone: string;
@@ -23,6 +24,7 @@ type Params = {
 export function useEntrySeriesActions({
   user,
   firestore,
+  calendarId,
   entries,
   setEntries,
   timezone,
@@ -51,7 +53,7 @@ export function useEntrySeriesActions({
       validateMaster(updatedEntry);
 
       if (user && firestore) {
-        const docRef = doc(firestore, "users", user.uid, "calendar_entries", masterId);
+        const docRef = doc(firestore, 'calendars', calendarId, 'calendar_entries', masterId);
         await updateDoc(docRef, stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
       } else {
         setEntries((prev) => prev.map((e) => (e.id === masterId ? updatedEntry : e)));
@@ -73,7 +75,7 @@ export function useEntrySeriesActions({
       const updatedEntry = updateSingleOccurrence(masterEntry, instanceDate, { isPaid });
 
       if (user && firestore) {
-        const docRef = doc(firestore, "users", user.uid, "calendar_entries", masterId);
+        const docRef = doc(firestore, 'calendars', calendarId, 'calendar_entries', masterId);
         await updateDoc(docRef, stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
       } else {
         setEntries((prev) => prev.map((e) => (e.id === masterId ? updatedEntry : e)));
@@ -102,7 +104,7 @@ export function useEntrySeriesActions({
       if (user && firestore) {
         const batch = writeBatch(firestore);
         masterUpdates.forEach((updatedMaster, id) => {
-          const docRef = doc(firestore, "users", user.uid, "calendar_entries", id);
+          const docRef = doc(firestore, 'calendars', calendarId, 'calendar_entries', id);
           batch.update(docRef, { exceptions: (updatedMaster as any).exceptions });
         });
         await batch.commit();

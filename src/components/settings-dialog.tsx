@@ -456,20 +456,28 @@ export function SettingsDialog({
               <Separator />
               
               <div className="space-y-2">
-                  <h3 className="font-semibold">Share Calendar</h3>
-                  <p className="text-sm text-muted-foreground">Generate a read-only link to share your calendar with others.</p>
-                  <Button onClick={handleGenerateShareLink} className="w-full btn-primary-hover">
-                      <Share2 className="mr-2 h-4 w-4" /> Generate Share Link
-                  </Button>
-                  {shareLink && (
-                      <div className="p-2 border rounded-md bg-muted">
-                          <p className="text-sm text-muted-foreground break-all mb-2">{shareLink}</p>
-                          <Button onClick={handleCopyToClipboard} size="sm" className="w-full btn-primary-hover">
-                              {hasCopied ? <Check className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}
-                              {hasCopied ? 'Copied!' : 'Copy Link'}
-                          </Button>
-                      </div>
-                  )}
+                <h3 className="font-semibold">Collaborators</h3>
+                <p className="text-sm text-muted-foreground">Invite people to collaborate on this calendar.</p>
+                <div className="flex gap-2">
+                  <Input placeholder="friend@email.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
+                  <Button onClick={onInvite} disabled={!inviteEmail} className="btn-primary-hover">Invite</Button>
+                </div>
+                <div className="rounded-md border">
+                  <div className="p-2 text-xs text-muted-foreground">Members</div>
+                  <ul className="px-3 pb-2">
+                    {members.map((m) => (
+                      <li key={m.uid} className="flex items-center justify-between py-1 text-sm">
+                        <span>{m.displayName || m.email || m.uid}</span>
+                        {m.uid !== ownerId && (
+                          <Button size="sm" variant="outline" onClick={() => onRemove(m.uid)}>Remove</Button>
+                        )}
+                      </li>
+                    ))}
+                    {members.length === 0 && (
+                      <li className="py-2 text-sm text-muted-foreground">No collaborators yet</li>
+                    )}
+                  </ul>
+                </div>
               </div>
 
               <Separator />
@@ -594,3 +602,4 @@ export function SettingsDialog({
     </Dialog>
   );
 }
+
