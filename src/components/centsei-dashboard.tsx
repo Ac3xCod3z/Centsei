@@ -35,12 +35,12 @@ import { MotionPathPlugin } from "gsap/MotionPathPlugin";
 import dynamic from 'next/dynamic';
 const EntryDialog = dynamic(() => import('./entry-dialog').then(m => m.EntryDialog), { ssr: false });
 const SettingsDialog = dynamic(() => import('./settings-dialog').then(m => m.SettingsDialog), { ssr: false });
-import { DayEntriesDialog } from "./day-entries-dialog";
-import { MonthlyBreakdownDialog } from "./monthly-breakdown-dialog";
-import { MonthlySummaryDialog } from "./monthly-summary-dialog";
-import { CalculatorDialog } from "./calculator-dialog";
-import { GoalsDialog } from "./goals-dialog";
-import { BirthdaysDialog } from "./birthdays-dialog";
+const DayEntriesDialog = dynamic(() => import('./day-entries-dialog').then(m => m.DayEntriesDialog), { ssr: false });
+const MonthlyBreakdownDialog = dynamic(() => import('./monthly-breakdown-dialog').then(m => m.MonthlyBreakdownDialog), { ssr: false });
+const MonthlySummaryDialog = dynamic(() => import('./monthly-summary-dialog').then(m => m.MonthlySummaryDialog), { ssr: false });
+const CalculatorDialog = dynamic(() => import('./calculator-dialog').then(m => m.CalculatorDialog), { ssr: false });
+const GoalsDialog = dynamic(() => import('./goals-dialog').then(m => m.GoalsDialog), { ssr: false });
+const BirthdaysDialog = dynamic(() => import('./birthdays-dialog').then(m => m.BirthdaysDialog), { ssr: false });
 const EnsoInsightsDialog = dynamic(() => import('./enso-insights-dialog').then(m => m.EnsoInsightsDialog), { ssr: false });
 import { Settings, Menu, Plus, Trash2, BarChartBig, PieChart, CheckCircle2, Calculator, ChevronDown, TrendingUp, Trophy, Target, AreaChart, Heart, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -59,6 +59,7 @@ import {
 import type { Entry, RolloverPreference, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent, MasterEntry } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
 import { DashboardTopbar } from "./dashboard-topbar";
+import { DashboardCalendarArea } from "./dashboard-calendar-area";
 import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -786,38 +787,24 @@ export default function CentseiDashboard() {
           initialBalance={initialBalance}
         />
 
-        <CentseiCalendar
-          entries={entries}
+        <DashboardCalendarArea
+          isMobile={isMobile}
+          entries={entries as any[]}
           generatedEntries={allGeneratedEntries}
           timezone={timezone}
           openNewEntryDialog={openNewEntryDialog}
           setEditingEntry={setEditingEntry}
           selectedDate={selectedDate}
-          setSelectedDate={setSelectedDate}
+          setSelectedDate={setSelectedDate as any}
           setEntryDialogOpen={setEntryDialogOpen}
-          openDayEntriesDialog={(holidays, birthdays) => {
-            if(holidays.length > 0 || birthdays.length > 0 || allGeneratedEntries.filter(entry => isSameDay(parseDateInTimezone(entry.date, timezone), selectedDate || new Date())).length > 0) {
-              setDayEntriesDialogOpen(true);
-            }
-          }}
-          isReadOnly={false}
+          openDayEntriesDialog={() => setDayEntriesDialogOpen(true)}
           payPeriods={payPeriods}
           isSelectionMode={isSelectionMode}
-          toggleSelectionMode={() => setSelectionMode(!isSelectionMode)}
+          setSelectionMode={setSelectionMode}
           selectedInstances={selectedInstances}
-          setSelectedInstances={setSelectedInstances}
-          onBulkDelete={() => {
-              if (selectedInstances.length > 0) {
-                  handleBulkDelete();
-              }
-          }}
-          onMoveRequest={(entry, newDate) => {
-            if (entry.recurrence === 'none') {
-                handleMoveEntry(entry, newDate, false);
-            } else {
-                setMoveRequest({ entry, newDate });
-            }
-          }}
+          setSelectedInstances={setSelectedInstances as any}
+          onBulkDelete={() => { if (selectedInstances.length > 0) handleBulkDelete(); }}
+          onMoveRequest={(entry, newDate) => { entry.recurrence === 'none' ? handleMoveEntry(entry, newDate, false) : setMoveRequest({ entry, newDate }); }}
           birthdays={birthdays}
           budgetScore={budgetScore}
           dojoRank={dojoRank}
@@ -829,16 +816,6 @@ export default function CentseiDashboard() {
           initialBalance={initialBalance}
           onInstancePaidToggle={handleInstancePaidToggle}
         />
-        
-        {!isMobile && (
-            <Button 
-                onClick={() => openNewEntryDialog(selectedDate ?? new Date())} 
-                className="fixed bottom-8 right-8 h-16 w-16 rounded-full shadow-xl"
-            >
-                <Plus className="h-8 w-8" />
-                <span className="sr-only">Add new entry</span>
-            </Button>
-        )}
       </div>
 
       <EntryDialog
