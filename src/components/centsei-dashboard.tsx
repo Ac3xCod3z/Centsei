@@ -32,15 +32,16 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { gsap } from "gsap";
 import { MotionPathPlugin } from "gsap/MotionPathPlugin";
 
-import { EntryDialog } from "./entry-dialog";
-import { SettingsDialog } from "./settings-dialog";
+import dynamic from 'next/dynamic';
+const EntryDialog = dynamic(() => import('./entry-dialog').then(m => m.EntryDialog), { ssr: false });
+const SettingsDialog = dynamic(() => import('./settings-dialog').then(m => m.SettingsDialog), { ssr: false });
 import { DayEntriesDialog } from "./day-entries-dialog";
 import { MonthlyBreakdownDialog } from "./monthly-breakdown-dialog";
 import { MonthlySummaryDialog } from "./monthly-summary-dialog";
 import { CalculatorDialog } from "./calculator-dialog";
 import { GoalsDialog } from "./goals-dialog";
 import { BirthdaysDialog } from "./birthdays-dialog";
-import { EnsoInsightsDialog } from "./enso-insights-dialog";
+const EnsoInsightsDialog = dynamic(() => import('./enso-insights-dialog').then(m => m.EnsoInsightsDialog), { ssr: false });
 import { Settings, Menu, Plus, Trash2, BarChartBig, PieChart, CheckCircle2, Calculator, ChevronDown, TrendingUp, Trophy, Target, AreaChart, Heart, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
@@ -57,6 +58,7 @@ import {
 
 import type { Entry, RolloverPreference, SelectedInstance, BudgetScore, DojoRank, Goal, Birthday, Holiday, SeasonalEvent, MasterEntry } from "@/lib/types";
 import { CentseiCalendar, SidebarContent } from "./centsei-calendar";
+import { DashboardTopbar } from "./dashboard-topbar";
 import { format, subMonths, startOfMonth, endOfMonth, isBefore, getDate, setDate, startOfWeek, endOfWeek, eachWeekOfInterval, add, getDay, isSameDay, addMonths, isSameMonth, differenceInCalendarMonths, lastDayOfMonth, set, getYear, isWithinInterval, isAfter, max, parseISO } from "date-fns";
 import { recurrenceIntervalMonths } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -760,90 +762,29 @@ export default function CentseiDashboard() {
   return (
     <>
       <div ref={rootRef} className="flex h-screen w-full flex-col bg-background">
-        <header className="flex h-20 items-center justify-between border-b px-4 md:px-6 shrink-0">
-          <div className="flex items-center gap-2">
-            <Image src="/CentseiLogo.png" alt="Centsei Logo" width={80} height={26} />
-          </div>
-          <div className="flex items-center gap-2">
-            {isMobile && (
-              <div
-                ref={mobileMenuFabRef}
-                className="fixed z-50"
-                style={{
-                  right: `${mobileMenuPosition.x}px`,
-                  bottom: `${mobileMenuPosition.y}px`,
-                }}
-                {...mobileMenuHandlers}
-              >
-                 <Sheet open={isMobileSheetOpen} onOpenChange={setMobileSheetOpen}>
-                    <SheetTrigger asChild>
-                      <Button
-                        aria-label="Open Menu"
-                        className={cn(
-                          "h-16 w-16 rounded-full shadow-xl flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 touch-none",
-                          isMobileMenuDragging && "cursor-grabbing"
-                        )}
-                      >
-                         <Menu />
-                      </Button>
-                    </SheetTrigger>
-                    <SheetContent side="left" className="p-0 flex flex-col w-3/4">
-                      <SheetHeader className="p-4 border-b">
-                        <SheetTitle>Pay Period</SheetTitle>
-                      </SheetHeader>
-                      <ScrollArea className="flex-1">
-                        <SidebarContent periods={payPeriods} activeIndex={activePeriodIndex} initialBalance={initialBalance} />
-                      </ScrollArea>
-                    </SheetContent>
-                  </Sheet>
-              </div>
-            )}
-
-            {!isMobile && (
-              <>
-                <Button variant="ghost" size="icon" onClick={() => setCalculatorOpen(true)}>
-                  <Calculator className="h-5 w-5" />
-                  <span className="sr-only">Calculator</span>
-                </Button>
-                <Button variant="ghost" size="icon" onClick={() => setSettingsDialogOpen(true)}>
-                  <Settings className="h-5 w-5" />
-                  <span className="sr-only">Settings</span>
-                </Button>
-              </>
-            )}
-             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-10 w-10 rounded-full">
-                  <Avatar>
-                    <AvatarImage src={user?.photoURL || undefined} alt={user?.displayName || "Guest"}/>
-                    <AvatarFallback>{user?.displayName?.[0] || 'G'}</AvatarFallback>
-                  </Avatar>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>{user?.displayName || 'Guest User'}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setMonthlySummaryOpen(true)}><PieChart className="mr-2 h-4 w-4" />Monthly Summary</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setMonthlyBreakdownOpen(true)}><BarChartBig className="mr-2 h-4 w-4" />Category Breakdown</DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setEnsoInsightsOpen(true)}><AreaChart className="mr-2 h-4 w-4" />Enso's Insights</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setGoalsOpen(true)}><Target className="mr-2 h-4 w-4" />Zen Goals</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSenseiEvalOpen(true)}><TrendingUp className="mr-2 h-4 w-4" />Sensei's Evaluation</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setDojoJourneyOpen(true)}><Trophy className="mr-2 h-4 w-4" />Dojo Journey</DropdownMenuItem>
-                {isMobile && (
-                  <>
-                    <DropdownMenuSeparator />
-                     <DropdownMenuItem onClick={() => setCalculatorOpen(true)}><Calculator className="mr-2 h-4 w-4" />Calculator</DropdownMenuItem>
-                     <DropdownMenuItem onClick={() => setSettingsDialogOpen(true)}><Settings className="mr-2 h-4 w-4"/>Settings</DropdownMenuItem>
-                  </>
-                )}
-                <DropdownMenuSeparator />
-                 <DropdownMenuItem onClick={() => senseiSays.showFavorites()}><Heart className="mr-2 h-4 w-4" />Favorite Mantras</DropdownMenuItem>
-                 <DropdownMenuItem onClick={signOut}><LogOut className="mr-2 h-4 w-4" />Sign Out</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </header>
+        <DashboardTopbar
+          isMobile={isMobile}
+          user={user}
+          signOut={signOut}
+          setCalculatorOpen={setCalculatorOpen}
+          setSettingsDialogOpen={setSettingsDialogOpen}
+          setMonthlySummaryOpen={setMonthlySummaryOpen}
+          setMonthlyBreakdownOpen={setMonthlyBreakdownOpen}
+          setEnsoInsightsOpen={setEnsoInsightsOpen}
+          setGoalsOpen={setGoalsOpen}
+          setSenseiEvalOpen={setSenseiEvalOpen}
+          setDojoJourneyOpen={setDojoJourneyOpen}
+          senseiSays={senseiSays}
+          isMobileSheetOpen={isMobileSheetOpen}
+          setMobileSheetOpen={setMobileSheetOpen}
+          mobileMenuFabRef={mobileMenuFabRef}
+          mobileMenuPosition={mobileMenuPosition}
+          mobileMenuHandlers={mobileMenuHandlers}
+          isMobileMenuDragging={isMobileMenuDragging}
+          payPeriods={payPeriods}
+          activePeriodIndex={activePeriodIndex}
+          initialBalance={initialBalance}
+        />
 
         <CentseiCalendar
           entries={entries}

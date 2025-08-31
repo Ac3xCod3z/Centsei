@@ -4,8 +4,8 @@ import { useCallback } from "react";
 import { format } from "date-fns";
 import { doc, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
 import type { Entry, MasterEntry } from "@/lib/types";
-import { getOriginalIdFromInstance } from "@/lib/entries";
-import { parseDateInTimezone, stripUndefined } from "@/lib/utils";
+import { stripUndefined } from "@/lib/utils";
+import { parseDateInTimezone } from "@/lib/time";
 import { moveOneTime, moveSeries, moveSingleOccurrence, validateMaster, updateSingleOccurrence } from "@/lib/move";
 
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
@@ -29,6 +29,10 @@ export function useEntrySeriesActions({
   toast,
   setMoveRequest,
 }: Params) {
+  function getOriginalIdFromInstance(key: string) {
+    const m = key.match(/^(.*)-(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? m[1] : key;
+  }
   const handleMoveEntry = useCallback(
     async (entryToMove: Entry, newDate: string, moveAll: boolean) => {
       const masterId = getOriginalIdFromInstance(entryToMove.id);
@@ -113,4 +117,3 @@ export function useEntrySeriesActions({
 
   return { handleMoveEntry, handleInstancePaidToggle, handleReorder };
 }
-
