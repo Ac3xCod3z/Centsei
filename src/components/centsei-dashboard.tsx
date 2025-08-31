@@ -82,6 +82,7 @@ import { SenseiEvaluationDialog } from "./sensei-evaluation-dialog";
 import { DojoJourneyDialog } from "./dojo-journey-dialog";
 import { cn } from "@/lib/utils";
 import { useDraggableFab } from "@/hooks/use-draggable-fab";
+import { useEntrySeriesActions } from "@/hooks/useEntrySeriesActions";
 
 import { buildPayPeriods } from "@/lib/pay-periods";
 import { moveOneTime, moveSeries, moveSingleOccurrence, validateMaster, updateSeries, updateSingleOccurrence, deleteSeries, deleteSingleOccurrence } from "@/lib/move";
@@ -577,51 +578,9 @@ export default function CentseiDashboard() {
      setSelectedInstances([]);
   }
 
-  const handleMoveEntry = async (entryToMove: Entry, newDate: string, moveAll: boolean) => {
-    const masterId = getOriginalIdFromInstance(entryToMove.id);
-    const masterEntry = entries.find(e => e.id === masterId);
-    if (!masterEntry) return;
-
-    let updatedEntry: MasterEntry;
-
-    if (masterEntry.recurrence === 'none') {
-      updatedEntry = moveOneTime(masterEntry, entryToMove.date, newDate);
-    } else if (moveAll) {
-      updatedEntry = moveSeries(masterEntry, newDate);
-    } else {
-      updatedEntry = moveSingleOccurrence(masterEntry, entryToMove.date, newDate);
-    }
-     
-    validateMaster(updatedEntry);
-
-    if (user && firestore) {
-      const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
-      await updateDoc(docRef, stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
-    } else {
-      setEntries(prev => prev.map(e => (e.id === masterId ? updatedEntry : e)));
-    }
-     
-    setMoveRequest(null);
-    toast({ title: 'Entry Moved', description: `Moved to ${format(parseDateInTimezone(newDate, timezone), 'MMM d, yyyy')}` });
-  };
+  // Moved to useEntrySeriesActions
   
-  const handleInstancePaidToggle = async (instanceId: string, isPaid: boolean) => {
-    const masterId = getOriginalIdFromInstance(instanceId);
-    const masterEntry = entries.find(e => e.id === masterId);
-    if (!masterEntry) return;
-    
-    const instanceDate = instanceId.substring(masterId.length + 1);
-    
-    // Create an exception for this one instance
-    const updatedEntry = updateSingleOccurrence(masterEntry, instanceDate, { isPaid });
-    
-    if (user && firestore) {
-        const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', masterId);
-        await updateDoc(docRef, stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
-    } else {
-        setEntries(prev => prev.map(e => (e.id === masterId ? updatedEntry : e)));
-    }
-  };
+  // Moved to useEntrySeriesActions
 
   const handleSaveGoal = async (goal: Omit<Goal, 'id'> & { id?: string }) => {
     if (user) {
@@ -663,43 +622,7 @@ export default function CentseiDashboard() {
     }
   }
 
-  const handleReorder = (orderedEntries: Entry[]) => {
-    
-    const masterUpdates = new Map<string, MasterEntry>();
-
-    orderedEntries.forEach((entry, index) => {
-      const masterId = getOriginalIdFromInstance(entry.id);
-      
-      // Get the latest version of the master entry, either from the map or from the state
-      const masterEntry = masterUpdates.get(masterId) || entries.find(e => e.id === masterId);
-      if (!masterEntry) return;
-
-      const updatedMaster = { ...masterEntry, exceptions: { ...(masterEntry.exceptions || {}) } };
-      
-      // Update the order for the specific instance date
-      updatedMaster.exceptions[entry.date] = { 
-        ...updatedMaster.exceptions[entry.date], 
-        order: index 
-      };
-      
-      masterUpdates.set(masterId, stripUndefined(updatedMaster));
-    });
-
-    if (user) {
-        const batch = writeBatch(firestore);
-        masterUpdates.forEach((updatedMaster, id) => {
-            const docRef = doc(firestore, 'users', user.uid, 'calendar_entries', id);
-            batch.update(docRef, { exceptions: updatedMaster.exceptions });
-        });
-        batch.commit();
-    } else {
-       setEntries(prevEntries => {
-          return prevEntries.map(e => masterUpdates.get(e.id) || e);
-       });
-    }
-
-    toast({ title: 'Order Saved', description: 'Your new entry order has been saved.' });
-  };
+  // Moved to useEntrySeriesActions
 
 
   const openNewEntryDialog = (date: Date) => {
@@ -822,6 +745,16 @@ export default function CentseiDashboard() {
   if (!authLoading && !user && isGuest) {
       // Potentially show a "continue as guest" splash screen before rendering dashboard
   }
+
+  const { handleMoveEntry, handleInstancePaidToggle, handleReorder } = useEntrySeriesActions({
+    user,
+    firestore,
+    entries,
+    setEntries,
+    timezone,
+    toast,
+    setMoveRequest,
+  });
 
   return (
     <>
