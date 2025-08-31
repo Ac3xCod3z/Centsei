@@ -5,6 +5,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/components/auth-provider";
 import { Toaster } from "@/components/ui/toaster";
+import { CalendarProvider } from "@/contexts/CalendarContext";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -23,6 +24,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <AuthProvider>
+          <CalendarProvider>
           <ThemeProvider
             attribute="class"
             defaultTheme="system"
@@ -32,6 +34,7 @@ export default function RootLayout({
             {children}
             <Toaster />
           </ThemeProvider>
+          </CalendarProvider>
         </AuthProvider>
       </body>
     </html>

@@ -109,6 +109,86 @@ export function SettingsDialog({
 
   const [isCalendarLoading, setCalendarLoading] = useState(false);
   const [centseiCalendarId, setCentseiCalendarId] = useLocalStorage<string | null>('centseiCalendarId', null);
+  const { user } = useAuth();
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [members, setMembers] = useState<Array<{ uid: string; email?: string; displayName?: string }>>([]);
+  const [ownerId, setOwnerId] = useState<string>("");
+
+  async function refreshMembers() {
+    try {
+      const calId = typeof window !== 'undefined' ? localStorage.getItem('centseiActiveCalendarId') : null;
+      if (!calId) return;
+      const { doc, getDoc } = await import('firebase/firestore');
+      const { firestore } = await import('@/lib/firebase');
+      const cdoc = await getDoc(doc(firestore, 'calendars', calId));
+      if (!cdoc.exists()) return;
+      const data: any = cdoc.data();
+      setOwnerId(data.ownerId || "");
+      const uids: string[] = data.members || [];
+      const mapped: Array<{ uid: string; email?: string; displayName?: string }> = [];
+      for (const uid of uids) {
+        try {
+          const udoc = await getDoc(doc(firestore, 'users', uid));
+          if (udoc.exists()) {
+            const ud: any = udoc.data();
+            mapped.push({ uid, email: ud.email, displayName: ud.displayName });
+          } else {
+            mapped.push({ uid });
+          }
+        } catch {
+          mapped.push({ uid });
+        }
+      }
+      setMembers(mapped);
+    } catch (e) {
+      console.warn('Failed to refresh members', e);
+    }
+  }
+
+  useEffect(() => {
+    if (isOpen) refreshMembers();
+  }, [isOpen]);
+
+  async function onInvite() {
+    if (!inviteEmail || !user) return;
+    try {
+      const calId = typeof window !== 'undefined' ? localStorage.getItem('centseiActiveCalendarId') : null;
+      if (!calId) return;
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ calendarId: calId, email: inviteEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Invite failed');
+      setInviteEmail("");
+      toast({ title: 'Invite sent', description: 'An invitation has been created.' });
+      await refreshMembers();
+    } catch (e: any) {
+      toast({ title: 'Invite failed', description: String(e?.message || e), variant: 'destructive' });
+    }
+  }
+
+  async function onRemove(uid: string) {
+    if (!user) return;
+    try {
+      const calId = typeof window !== 'undefined' ? localStorage.getItem('centseiActiveCalendarId') : null;
+      if (!calId) return;
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/invite/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ calendarId: calId, removeUid: uid }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Remove failed');
+      setMembers(prev => prev.filter(m => m.uid !== uid));
+      toast({ title: 'Removed collaborator' });
+    } catch (e: any) {
+      toast({ title: 'Remove failed', description: String(e?.message || e), variant: 'destructive' });
+    }
+  }
 
   useEffect(() => {
     if (isOpen) {
@@ -460,7 +540,7 @@ export function SettingsDialog({
                 <p className="text-sm text-muted-foreground">Invite people to collaborate on this calendar.</p>
                 <div className="flex gap-2">
                   <Input placeholder="friend@email.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
-                  <Button onClick={onInvite} disabled={!inviteEmail} className="btn-primary-hover">Invite</Button>
+                  <Button onClick={onInvite} disabled={!inviteEmail || !user} className="btn-primary-hover">Invite</Button>
                 </div>
                 <div className="rounded-md border">
                   <div className="p-2 text-xs text-muted-foreground">Members</div>
@@ -468,7 +548,7 @@ export function SettingsDialog({
                     {members.map((m) => (
                       <li key={m.uid} className="flex items-center justify-between py-1 text-sm">
                         <span>{m.displayName || m.email || m.uid}</span>
-                        {m.uid !== ownerId && (
+                        {m.uid !== ownerId && user?.uid === ownerId && (
                           <Button size="sm" variant="outline" onClick={() => onRemove(m.uid)}>Remove</Button>
                         )}
                       </li>

@@ -1,10 +1,20 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users can only read and write to their own data.
-    match /users/{userId}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    function isCalendarMember(calendarId) {
+      return request.auth != null &&
+        request.auth.uid in get(/databases/$(database)/documents/calendars/$(calendarId)).data.members;
+    }
+
+    // Calendar document itself
+    match /calendars/{calendarId} {
+      allow read, write: if isCalendarMember(calendarId);
+
+      // All nested collections like calendar_entries, goals, birthdays, invites
+      match /{document=**} {
+        allow read, write: if isCalendarMember(calendarId);
+      }
     }
   }
 }
+
