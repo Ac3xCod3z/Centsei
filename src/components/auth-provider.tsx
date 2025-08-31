@@ -2,7 +2,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
-import { User, onAuthStateChanged, signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth';
+import { User, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signOut as firebaseSignOut } from 'firebase/auth';
 import { auth, googleProvider, firestore, firebaseEnabled } from '@/lib/firebase';
 import { CentseiLoader } from './centsei-loader';
 import type { Entry, Goal, Birthday } from '@/lib/types';
@@ -44,6 +44,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
     }
 
+    // Complete a pending redirect sign-in if there was one
+    getRedirectResult(auth).catch(() => {/* ignore */});
+
+    let timeoutId: any = setTimeout(() => setLoading(false), 5000);
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       if (user) {
@@ -52,10 +57,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           localStorage.removeItem("centsei_guest_mode");
         } catch {}
       }
+      clearTimeout(timeoutId);
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => { clearTimeout(timeoutId); unsubscribe(); };
   }, []);
 
   const continueAsGuest = () => {
@@ -73,7 +79,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     try {
       setLoading(true);
-      await signInWithPopup(auth, googleProvider);
+      const isPWA = (typeof window !== 'undefined') && (
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+        // iOS Safari
+        (window.navigator as any).standalone === true
+      );
+
+      if (isPWA) {
+        await signInWithRedirect(auth, googleProvider);
+        return; // navigation will occur, onAuthStateChanged will run after redirect
+      }
+
+      try {
+        await signInWithPopup(auth, googleProvider);
+      } catch (err: any) {
+        // Fallback to redirect if popup is blocked
+        await signInWithRedirect(auth, googleProvider);
+        return;
+      }
        try {
         localStorage.removeItem("centsei_guest_mode");
        } catch {}
@@ -98,7 +121,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         localStorage.removeItem("centsei_guest_mode");
       } catch {}
-      router.push('/login');
+      try {
+        router.replace('/login');
+      } catch {
+        if (typeof window !== 'undefined') window.location.assign('/login');
+      }
     }
   };
 
