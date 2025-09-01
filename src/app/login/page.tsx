@@ -11,7 +11,6 @@ export default function LoginPage() {
   const { 
     isLoading, 
     signInWithGoogle, 
-    continueAsGuest 
   } = useLoginPage();
 
   if (isLoading) {
@@ -25,26 +24,16 @@ export default function LoginPage() {
           <Image src="/CentseiLogo.png" alt="Centsei" width={140} height={46} style={{ height: 'auto' }} />
         </div>
 
-        <h1 className="text-xl font-semibold">Welcome</h1>
+        <h1 className="text-xl font-semibold">Welcome to Centsei</h1>
         <p className="text-sm text-muted-foreground">
-          Sign in to sync across devices — or continue without an account to keep data on this device.
+          Sign in with your Google account to begin your journey to financial mastery.
         </p>
 
         <div className="space-y-3">
           <Button className="w-full" onClick={signInWithGoogle}>
             Continue with Google
           </Button>
-
-          <div className="text-xs text-muted-foreground">or</div>
-
-          <Button variant="outline" className="w-full" onClick={continueAsGuest}>
-            Use without account (local only)
-          </Button>
         </div>
-
-        <p className="text-xs text-muted-foreground">
-          You can switch to Google later from Settings to enable sync & backup.
-        </p>
       </div>
     </main>
   );

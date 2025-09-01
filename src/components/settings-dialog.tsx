@@ -73,6 +73,8 @@ type SettingsDialogProps = {
   onGoalsChange: (goals: Goal[]) => void;
   birthdays: Birthday[];
   onBirthdaysChange: (birthdays: Birthday[]) => void;
+  initialBalance: number;
+  onInitialBalanceChange: (balance: number) => void;
 };
 
 function getOriginalIdFromInstance(key: string) {
@@ -95,6 +97,8 @@ export function SettingsDialog({
   onGoalsChange,
   birthdays,
   onBirthdaysChange,
+  initialBalance,
+  onInitialBalanceChange,
 }: SettingsDialogProps) {
   const [recommendation, setRecommendation] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -334,6 +338,7 @@ export function SettingsDialog({
         birthdays,
         rolloverPreference,
         timezone,
+        initialBalance
       };
       const jsonString = JSON.stringify(dataToExport, null, 2);
       const blob = new Blob([jsonString], { type: 'application/json' });
@@ -369,7 +374,8 @@ export function SettingsDialog({
             if (importedData.birthdays && Array.isArray(importedData.birthdays)) onBirthdaysChange(importedData.birthdays);
             if(importedData.rolloverPreference) onRolloverPreferenceChange(importedData.rolloverPreference);
             if(importedData.timezone) onTimezoneChange(importedData.timezone);
-            
+            if(importedData.initialBalance) onInitialBalanceChange(importedData.initialBalance);
+
             toast({ title: "Import Successful!", description: "Your data has been loaded." });
 
         } catch (error: any) {
@@ -495,16 +501,16 @@ export function SettingsDialog({
               
               <div className="space-y-2">
                   <h3 className="font-semibold">Google Calendar</h3>
-                   <p className="text-sm text-muted-foreground">Push your upcoming bills and income to your Google Calendar. Guests can download an .ics file.</p>
-                   <Button onClick={handlePushToCalendar} variant="outline" className="w-full" disabled={isCalendarLoading}>
+                   <p className="text-sm text-muted-foreground">Push your upcoming bills and income to your Google Calendar. This feature is unavailable for guest users.</p>
+                   <Button onClick={handlePushToCalendar} variant="outline" className="w-full" disabled={isCalendarLoading || !user}>
                       {isCalendarLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarIcon className="mr-2 h-4 w-4" />}
                       {isCalendarLoading ? 'Pushing...' : 'Push to Calendar'}
                    </Button>
                    <div className="grid grid-cols-2 gap-2">
-                        <Button onClick={handleCreateCalendar} variant="outline" disabled={isCalendarLoading || !!centseiCalendarId}>
+                        <Button onClick={handleCreateCalendar} variant="outline" disabled={isCalendarLoading || !!centseiCalendarId || !user}>
                             <Plus className="mr-2 h-4 w-4" /> Create Calendar
                         </Button>
-                        <Button onClick={handleCleanCalendar} variant="destructive" disabled={isCalendarLoading || !centseiCalendarId}>
+                        <Button onClick={handleCleanCalendar} variant="destructive" disabled={isCalendarLoading || !centseiCalendarId || !user}>
                            <Trash2 className="mr-2 h-4 w-4" /> Clean Calendar
                         </Button>
                    </div>
@@ -537,9 +543,9 @@ export function SettingsDialog({
               
               <div className="space-y-2">
                 <h3 className="font-semibold">Collaborators</h3>
-                <p className="text-sm text-muted-foreground">Invite people to collaborate on this calendar.</p>
+                <p className="text-sm text-muted-foreground">Invite people to collaborate on this calendar. This feature is unavailable for guest users.</p>
                 <div className="flex gap-2">
-                  <Input placeholder="friend@email.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
+                  <Input placeholder="friend@email.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} disabled={!user} />
                   <Button onClick={onInvite} disabled={!inviteEmail || !user} className="btn-primary-hover">Invite</Button>
                 </div>
                 <div className="rounded-md border">
@@ -682,4 +688,3 @@ export function SettingsDialog({
     </Dialog>
   );
 }
-

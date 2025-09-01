@@ -12,17 +12,13 @@ import { useRouter } from 'next/navigation';
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  isGuest: boolean;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
-  continueAsGuest: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
     user: null,
     loading: true,
-    isGuest: false,
-    continueAsGuest: () => {},
     signInWithGoogle: async () => {},
     signOut: async () => {},
 });
@@ -30,80 +26,35 @@ const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isGuest, setIsGuest] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
-    try {
-      const guestMode = localStorage.getItem("centsei_guest_mode") === "true";
-      setIsGuest(guestMode);
-    } catch {}
-    
-    if (!firebaseEnabled || !auth) {
+    if (!firebaseEnabled) {
         setLoading(false);
+        // Maybe render a "service unavailable" screen
         return;
     }
-
-    // Complete a pending redirect sign-in if there was one
-    getRedirectResult(auth).catch(() => {/* ignore */});
-
-    let timeoutId: any = setTimeout(() => setLoading(false), 5000);
 
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
-      if (user) {
-        setIsGuest(false);
-        try {
-          localStorage.removeItem("centsei_guest_mode");
-        } catch {}
-      }
-      clearTimeout(timeoutId);
       setLoading(false);
     });
 
-    return () => { clearTimeout(timeoutId); unsubscribe(); };
+    return () => unsubscribe();
   }, []);
-
-  const continueAsGuest = () => {
-    try {
-      localStorage.setItem("centsei_guest_mode", "true");
-    } catch {}
-    setIsGuest(true);
-    setUser(null);
-  };
 
   const signInWithGoogle = async () => {
     if (!firebaseEnabled || !auth || !googleProvider) {
-        console.info('Firebase not initialized for sign-in.');
+        console.error('Firebase not initialized for sign-in.');
         return;
     }
+    setLoading(true);
     try {
-      setLoading(true);
-      const isPWA = (typeof window !== 'undefined') && (
-        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
-        // iOS Safari
-        (window.navigator as any).standalone === true
-      );
-
-      if (isPWA) {
-        await signInWithRedirect(auth, googleProvider);
-        return; // navigation will occur, onAuthStateChanged will run after redirect
-      }
-
-      try {
-        await signInWithPopup(auth, googleProvider);
-      } catch (err: any) {
-        // Fallback to redirect if popup is blocked
-        await signInWithRedirect(auth, googleProvider);
-        return;
-      }
-       try {
-        localStorage.removeItem("centsei_guest_mode");
-       } catch {}
-       setIsGuest(false);
+      await signInWithPopup(auth, googleProvider);
     } catch (error) {
       console.error("Error during sign-in:", error);
-      setLoading(false);
+      // Fallback to redirect for environments where popups are blocked
+      await signInWithRedirect(auth, googleProvider);
     }
   };
 
@@ -115,25 +66,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error("Error during sign-out:", error);
     } finally {
-      // For both guest and signed-in users, reset state and go to login.
       setUser(null);
-      setIsGuest(false);
-      try {
-        localStorage.removeItem("centsei_guest_mode");
-      } catch {}
-      try {
-        router.replace('/login');
-      } catch {
-        if (typeof window !== 'undefined') window.location.assign('/login');
-      }
+      router.push('/login');
     }
   };
 
-  const value = useMemo(() => ({ user, loading, isGuest, continueAsGuest, signInWithGoogle, signOut }), [user, loading, isGuest]);
-
-  if (loading) {
-      return <CentseiLoader isAuthLoading={true} />;
-  }
+  const value = useMemo(() => ({ user, loading, signInWithGoogle, signOut }), [user, loading]);
 
   return (
     <AuthContext.Provider value={value}>

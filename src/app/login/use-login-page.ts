@@ -6,29 +6,22 @@ import { useAuth } from '@/components/auth-provider';
 import { useRouter } from 'next/navigation';
 
 export function useLoginPage() {
-  const { user, signInWithGoogle, loading: authLoading, continueAsGuest: authContinueAsGuest, isGuest } = useAuth();
+  const { user, signInWithGoogle, loading: authLoading } = useAuth();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Determine the initial loading state.
-    // We are loading if auth is still loading and we don't have a user or guest status determined.
-    setIsLoading(authLoading || (!user && !isGuest));
+    // We are loading if auth is still in progress.
+    setIsLoading(authLoading);
     
-    // If auth is done loading and we have a user or are a guest, redirect.
-    if (!authLoading && (user || isGuest)) {
+    // If auth is done loading and we have a user, redirect.
+    if (!authLoading && user) {
       router.replace('/');
     }
-  }, [user, isGuest, authLoading, router]);
-  
-  const handleContinueAsGuest = () => {
-    authContinueAsGuest();
-    // The useEffect will handle the redirect once isGuest becomes true.
-  };
+  }, [user, authLoading, router]);
 
   return {
     isLoading,
     signInWithGoogle,
-    continueAsGuest: handleContinueAsGuest,
   };
 }

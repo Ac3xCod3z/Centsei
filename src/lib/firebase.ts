@@ -1,10 +1,11 @@
-// Safe Firebase bootstrap that gracefully supports "local only" mode.
-import { initializeApp, getApps, type FirebaseApp, getApp } from 'firebase/app';
+
+// Safe Firebase bootstrap that reports missing configuration.
+import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 import { getAnalytics, type Analytics } from "firebase/analytics";
 
-const cfg = {
+const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
@@ -14,26 +15,29 @@ const cfg = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
-const firebaseEnabled = Object.values(cfg).every(Boolean);
+const firebaseEnabled = Object.values(firebaseConfig).every(Boolean);
 
-let app: FirebaseApp | null = null;
-let auth: Auth | null = null;
-let firestore: Firestore | null = null;
-let googleProvider: GoogleAuthProvider | null = null;
-let analytics: Analytics | null = null;
+if (!firebaseEnabled) {
+    const missingKeys = Object.entries(firebaseConfig)
+        .filter(([, value]) => !value)
+        .map(([key]) => key);
+    console.error(`Firebase configuration is missing the following keys: ${missingKeys.join(', ')}. The app will not work correctly.`);
+    // In a real app, you might want to show a more user-friendly error screen.
+}
 
-
-if (firebaseEnabled) {
-  app = getApps()[0] ?? initializeApp(cfg);
-  auth = getAuth(app);
-  firestore = getFirestore(app);
-  googleProvider = new GoogleAuthProvider();
-  analytics = typeof window !== 'undefined' && cfg.measurementId ? getAnalytics(app) : null;
+let app: FirebaseApp;
+if (getApps().length) {
+    app = getApps()[0];
 } else {
-  if (typeof window !== 'undefined') {
-    // informational only; don’t make this an error
-    console.info('Firebase configuration is missing. Running in local-only mode.');
-  }
+    app = initializeApp(firebaseConfig);
+}
+
+const auth: Auth = getAuth(app);
+const firestore: Firestore = getFirestore(app);
+const googleProvider: GoogleAuthProvider = new GoogleAuthProvider();
+let analytics: Analytics | null = null;
+if (typeof window !== 'undefined' && firebaseConfig.measurementId) {
+    analytics = getAnalytics(app);
 }
 
 export { app, auth, googleProvider, firestore, analytics, firebaseEnabled };
