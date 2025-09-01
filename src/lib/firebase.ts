@@ -15,14 +15,17 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
-const firebaseEnabled = Object.values(firebaseConfig).every(Boolean);
+// Only require the core Firebase keys. Analytics is optional.
+const requiredKeys: (keyof typeof firebaseConfig)[] = [
+    'apiKey', 'authDomain', 'projectId', 'appId'
+];
+
+const missingKeys = requiredKeys.filter(key => !firebaseConfig[key]);
+
+const firebaseEnabled = missingKeys.length === 0;
 
 if (!firebaseEnabled) {
-    const missingKeys = Object.entries(firebaseConfig)
-        .filter(([, value]) => !value)
-        .map(([key]) => key);
     console.error(`Firebase configuration is missing the following keys: ${missingKeys.join(', ')}. The app will not work correctly.`);
-    // In a real app, you might want to show a more user-friendly error screen.
 }
 
 let app: FirebaseApp;
@@ -36,8 +39,13 @@ const auth: Auth = getAuth(app);
 const firestore: Firestore = getFirestore(app);
 const googleProvider: GoogleAuthProvider = new GoogleAuthProvider();
 let analytics: Analytics | null = null;
+
 if (typeof window !== 'undefined' && firebaseConfig.measurementId) {
-    analytics = getAnalytics(app);
+    try {
+        analytics = getAnalytics(app);
+    } catch (e) {
+        console.warn("Could not initialize Analytics", e);
+    }
 }
 
 export { app, auth, googleProvider, firestore, analytics, firebaseEnabled };
