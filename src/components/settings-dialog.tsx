@@ -410,19 +410,22 @@ export function SettingsDialog({
             if (importedData.entries && Array.isArray(importedData.entries)) {
                 importedData.entries.forEach((entry: MasterEntry) => {
                     const docRef = doc(collection(firestore, 'calendars', calId!, 'calendar_entries'));
-                    batch.set(docRef, { ...entry, id: undefined }); // Firestore will generate ID
+                    const { id, ...payload } = entry as any; // do not write client-side id
+                    batch.set(docRef, payload);
                 });
             }
             if (importedData.goals && Array.isArray(importedData.goals)) {
               importedData.goals.forEach((goal: Goal) => {
                   const docRef = doc(collection(firestore, 'calendars', calId!, 'goals'));
-                  batch.set(docRef, { ...goal, id: undefined });
+                  const { id, ...payload } = goal as any;
+                  batch.set(docRef, payload);
               });
             }
-             if (importedData.birthdays && Array.isArray(importedData.birthdays)) {
+            if (importedData.birthdays && Array.isArray(importedData.birthdays)) {
               importedData.birthdays.forEach((birthday: Birthday) => {
                   const docRef = doc(collection(firestore, 'calendars', calId!, 'birthdays'));
-                  batch.set(docRef, { ...birthday, id: undefined });
+                  const { id, ...payload } = birthday as any;
+                  batch.set(docRef, payload);
               });
             }
 
