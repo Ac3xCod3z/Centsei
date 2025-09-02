@@ -3,20 +3,14 @@
 
 /**
  * @fileOverview A flow for providing AI-powered rollover preference recommendations.
- * This flow is self-contained and does not rely on a global genkit instance.
+ * This flow relies on the global Genkit instance defined in @/ai/genkit.
  * - getRolloverRecommendation - A function that provides a rollover recommendation based on user input.
  * - RolloverOptimizationInput - The input type for the getRolloverRecommendation function.
  * - RolloverOptimizationOutput - The return type for the getRolloverRecommendation function.
  */
 
-import { genkit } from 'genkit';
-import { googleAI } from '@genkit-ai/googleai';
+import { ai } from '@/ai/genkit';
 import { z } from 'zod';
-
-// Initialize Genkit and the Google AI plugin within the flow file for stability.
-const ai = genkit({
-    plugins: [googleAI()],
-});
 
 const RolloverOptimizationInputSchema = z.object({
   incomeLevel: z

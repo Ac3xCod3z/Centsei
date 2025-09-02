@@ -3,19 +3,13 @@
 
 /**
  * @fileOverview A flow for generating a financial mantra.
- * This flow is self-contained and does not rely on a global genkit instance.
+ * This flow relies on the global Genkit instance defined in @/ai/genkit.
  * - senseiSaysFlow - A function that generates a mantra based on user's financial context.
  */
 
-import { genkit } from 'genkit';
-import { googleAI } from '@genkit-ai/googleai';
+import { ai } from '@/ai/genkit';
 import { SenseiContextSchema, SenseiResponseSchema } from '@/lib/sensei/types';
 import { z } from 'zod';
-
-// Initialize Genkit and the Google AI plugin within the flow file for stability.
-const ai = genkit({
-    plugins: [googleAI()],
-});
 
 const SENSEI_SYSTEM_PROMPT = `You are a calm financial sensei. Speak briefly. One sentence mantra only. Avoid repetition. Reflect the user's current financial context (score, belt, weekly net flow, upcoming events, goals, streaks). Encourage discipline without shame. Output valid JSON.`;
 
