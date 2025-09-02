@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -377,14 +378,14 @@ export function SettingsDialog({
             if(importedData.initialBalance) onInitialBalanceChange(importedData.initialBalance);
 
             // If signed in, persist imported data to the user's calendar in Firestore
-            if (user && calendarId) {
+            if (user) {
+              if (!calendarId) {
+                toast({ title: "Imported Locally", description: "Could not save to cloud yet. Please wait a moment and try again.", variant: "destructive" });
+                return;
+              }
               try {
                 // Determine or ensure the active calendar
-                let calId = calendarId;
-                if (!calId) {
-                  calId = await ensurePersonalCalendar(firestore, user.uid);
-                  setCalendarId(calId);
-                }
+                const calId = calendarId;
 
                 // Clear existing subcollections then insert imported data
                 const subcollections = [
@@ -597,7 +598,7 @@ export function SettingsDialog({
                         <Button onClick={handleExportData} variant="outline">
                             <Download className="mr-2 h-4 w-4" /> Export Data
                         </Button>
-                        <Button onClick={() => user && fileInputRef.current?.click()} variant="outline" disabled={!user}>
+                        <Button onClick={() => fileInputRef.current?.click()} variant="outline">
                            <Upload className="mr-2 h-4 w-4" /> Import Data
                         </Button>
                         <input
@@ -606,7 +607,6 @@ export function SettingsDialog({
                             onChange={handleImportData}
                             className="hidden"
                             accept="application/json"
-                            disabled={!user}
                         />
                    </div>
               </div>
@@ -650,7 +650,7 @@ export function SettingsDialog({
                       disabled={notificationPermission === 'denied'}
                   >
                       {notificationsEnabled ? <BellOff className="mr-2 h-4 w-4" /> : <Bell className="mr-2 h-4 w-4" />}
-                      {notificationsEnabled ? 'Disable Notifications' : 'Disable Notifications'}
+                      {notificationsEnabled ? 'Disable Notifications' : 'Enable Notifications'}
                   </Button>
                   {notificationPermission === 'denied' && (
                       <p className="text-xs text-destructive text-center">You have blocked notifications. Please enable them in your browser settings.</p>
