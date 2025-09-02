@@ -312,6 +312,22 @@ export default function CentseiDashboard() {
         calId = await ensurePersonalCalendar(firestore, user.uid);
         setActiveCalendarId(calId);
       }
+
+      // Load persisted calendar settings once per calendar
+      try {
+        if (settingsLoadedRef.current !== calId) {
+          const cdoc = await getDoc(doc(firestore, 'calendars', calId!));
+          if (cdoc.exists()) {
+            const data: any = cdoc.data();
+            if (data.timezone && data.timezone !== timezone) setTimezone(data.timezone);
+            if (data.rolloverPreference && data.rolloverPreference !== rolloverPreference) setRolloverPreference(data.rolloverPreference);
+            if (typeof data.initialBalance === 'number' && data.initialBalance !== initialBalance) setInitialBalance(data.initialBalance);
+          }
+          settingsLoadedRef.current = calId!;
+        }
+      } catch (e) {
+        console.warn('Failed to load calendar settings', e);
+      }
       
       const entriesQuery = query(collection(firestore, 'calendars', calId!, 'calendar_entries'));
       unsubscribers.push(onSnapshot(entriesQuery, snapshot => {
@@ -393,7 +409,20 @@ export default function CentseiDashboard() {
     entryToSave: Omit<Entry, 'id' | 'date'> & { id?: string; date: Date; originalDate?: string },
     isSeriesUpdate = false
 ) => {
-    if (!activeCalendarId) return;
+    // Ensure we have a calendar id to save into
+    let calId = activeCalendarId;
+    if (!calId && user) {
+      try {
+        calId = await ensurePersonalCalendar(firestore, user.uid);
+        setActiveCalendarId(calId);
+      } catch (e) {
+        console.error('Failed to ensure calendar before save', e);
+      }
+    }
+    if (!calId) {
+      toast({ title: 'Cannot Save Yet', description: 'Still preparing your calendar. Please try again in a moment.', variant: 'destructive' });
+      return;
+    }
 
     const { originalDate, ...data } = entryToSave;
     const masterId = data.id ? getOriginalIdFromInstance(data.id) : undefined;
@@ -417,11 +446,11 @@ export default function CentseiDashboard() {
         } else {
             updatedEntry = updateSingleOccurrence(masterEntry, originalDate || saveData.date, saveData);
         }
-        await updateDoc(doc(firestore, 'calendars', activeCalendarId, 'calendar_entries', masterId), stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
+        await updateDoc(doc(firestore, 'calendars', calId, 'calendar_entries', masterId), stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
 
     } else { // New entry
         const newEntryData = { ...saveData, created_at: serverTimestamp(), updated_at: serverTimestamp() };
-        await addDoc(collection(firestore, 'calendars', activeCalendarId, 'calendar_entries'), stripUndefined(newEntryData));
+        await addDoc(collection(firestore, 'calendars', calId, 'calendar_entries'), stripUndefined(newEntryData));
     }
 
     if(notificationsEnabled) scheduleNotificationsLocal(entries, timezone, toast);
@@ -451,10 +480,15 @@ export default function CentseiDashboard() {
   }
 
   const handleDeleteEntry = async (instanceId: string | null, isSeriesDelete: boolean) => {
-    if (!instanceId || !activeCalendarId) return;
+    if (!instanceId) return;
+    let calId = activeCalendarId;
+    if (!calId && user) {
+      try { calId = await ensurePersonalCalendar(firestore, user.uid); setActiveCalendarId(calId); } catch {}
+    }
+    if (!calId) return;
     const masterId = getOriginalIdFromInstance(instanceId);
     
-    const masterDocRef = doc(firestore, 'calendars', activeCalendarId, 'calendar_entries', masterId);
+    const masterDocRef = doc(firestore, 'calendars', calId, 'calendar_entries', masterId);
     if (isSeriesDelete) {
         await deleteDoc(masterDocRef);
     } else {

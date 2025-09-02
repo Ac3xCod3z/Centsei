@@ -7,6 +7,7 @@ import type { Entry, MasterEntry } from "@/lib/types";
 import { stripUndefined } from "@/lib/utils";
 import { parseDateInTimezone } from "@/lib/time";
 import { moveOneTime, moveSeries, moveSingleOccurrence, validateMaster, updateSingleOccurrence } from "@/lib/move";
+import { ensurePersonalCalendar } from "@/lib/calendars";
 
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
 
@@ -53,7 +54,12 @@ export function useEntrySeriesActions({
       validateMaster(updatedEntry);
 
       if (user && firestore) {
-        const docRef = doc(firestore, 'calendars', calendarId, 'calendar_entries', masterId);
+        let calId = calendarId;
+        if (!calId) {
+          try { calId = await ensurePersonalCalendar(firestore, user.uid); } catch {}
+        }
+        if (!calId) { setEntries((prev) => prev.map((e) => (e.id === masterId ? updatedEntry : e))); setMoveRequest(null); toast({ title: "Entry Moved (Local)", description: `Moved to ${format(parseDateInTimezone(newDate, timezone), 'MMM d, yyyy')}` }); return; }
+        const docRef = doc(firestore, 'calendars', calId, 'calendar_entries', masterId);
         await updateDoc(docRef, stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
       } else {
         setEntries((prev) => prev.map((e) => (e.id === masterId ? updatedEntry : e)));
@@ -75,7 +81,12 @@ export function useEntrySeriesActions({
       const updatedEntry = updateSingleOccurrence(masterEntry, instanceDate, { isPaid });
 
       if (user && firestore) {
-        const docRef = doc(firestore, 'calendars', calendarId, 'calendar_entries', masterId);
+        let calId = calendarId;
+        if (!calId) {
+          try { calId = await ensurePersonalCalendar(firestore, user.uid); } catch {}
+        }
+        if (!calId) { setEntries((prev) => prev.map((e) => (e.id === masterId ? updatedEntry : e))); return; }
+        const docRef = doc(firestore, 'calendars', calId, 'calendar_entries', masterId);
         await updateDoc(docRef, stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
       } else {
         setEntries((prev) => prev.map((e) => (e.id === masterId ? updatedEntry : e)));
@@ -102,12 +113,20 @@ export function useEntrySeriesActions({
       });
 
       if (user && firestore) {
-        const batch = writeBatch(firestore);
-        masterUpdates.forEach((updatedMaster, id) => {
-          const docRef = doc(firestore, 'calendars', calendarId, 'calendar_entries', id);
-          batch.update(docRef, { exceptions: (updatedMaster as any).exceptions });
-        });
-        await batch.commit();
+        let calId = calendarId;
+        if (!calId) {
+          try { calId = await ensurePersonalCalendar(firestore, user.uid); } catch {}
+        }
+        if (!calId) {
+          setEntries((prevEntries) => prevEntries.map((e) => (masterUpdates.get(e.id) as any) || e));
+        } else {
+          const batch = writeBatch(firestore);
+          masterUpdates.forEach((updatedMaster, id) => {
+            const docRef = doc(firestore, 'calendars', calId!, 'calendar_entries', id);
+            batch.update(docRef, { exceptions: (updatedMaster as any).exceptions });
+          });
+          await batch.commit();
+        }
       } else {
         setEntries((prevEntries) => prevEntries.map((e) => (masterUpdates.get(e.id) as any) || e));
       }

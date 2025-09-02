@@ -52,6 +52,10 @@ import { getCalendarAccessToken } from "@/lib/calendar-auth";
 import { exportEntries, createCentseiCalendar, deleteCentseiEvents, type CentseiEntryForCalendar } from "@/lib/google-calendar-helpers";
 import { parseDateInTimezone } from "@/lib/time";
 import { generateIcsContent } from "@/lib/ics-generator";
+import { collection, doc, getDocs, writeBatch, setDoc, serverTimestamp } from 'firebase/firestore';
+import { firestore } from '@/lib/firebase';
+import { ensurePersonalCalendar } from '@/lib/calendars';
+import { useCalendar } from '@/contexts/CalendarContext';
 
 const formSchema = z.object({
   incomeLevel: z.coerce.number().positive({ message: "Income must be a positive number." }),
@@ -114,6 +118,7 @@ export function SettingsDialog({
   const [isCalendarLoading, setCalendarLoading] = useState(false);
   const [centseiCalendarId, setCentseiCalendarId] = useLocalStorage<string | null>('centseiCalendarId', null);
   const { user } = useAuth();
+  const { calendarId, setCalendarId } = useCalendar();
   const [inviteEmail, setInviteEmail] = useState("");
   const [members, setMembers] = useState<Array<{ uid: string; email?: string; displayName?: string }>>([]);
   const [ownerId, setOwnerId] = useState<string>("");
@@ -376,7 +381,78 @@ export function SettingsDialog({
             if(importedData.timezone) onTimezoneChange(importedData.timezone);
             if(importedData.initialBalance) onInitialBalanceChange(importedData.initialBalance);
 
-            toast({ title: "Import Successful!", description: "Your data has been loaded." });
+            // If signed in, persist imported data to the user's calendar in Firestore
+            if (user) {
+              try {
+                // Determine or ensure the active calendar
+                let calId = calendarId;
+                if (!calId) {
+                  calId = await ensurePersonalCalendar(firestore, user.uid);
+                  setCalendarId(calId);
+                }
+
+                // Clear existing subcollections then insert imported data
+                const subcollections = [
+                  { name: 'calendar_entries', items: importedData.entries || [] },
+                  { name: 'goals', items: importedData.goals || [] },
+                  { name: 'birthdays', items: importedData.birthdays || [] },
+                ] as const;
+
+                // Delete existing docs
+                for (const sub of subcollections) {
+                  const snap = await getDocs(collection(firestore, 'calendars', calId!, sub.name));
+                  const ops: (() => void)[] = [];
+                  // Allocate deletes to a batch
+                  let batch = writeBatch(firestore);
+                  let count = 0;
+                  for (const d of snap.docs) {
+                    batch.delete(d.ref);
+                    count++;
+                    if (count >= 400) { await batch.commit(); batch = writeBatch(firestore); count = 0; }
+                  }
+                  if (count > 0) await batch.commit();
+                }
+
+                // Write imported docs
+                for (const sub of subcollections) {
+                  let batch = writeBatch(firestore);
+                  let count = 0;
+                  for (const item of sub.items) {
+                    const payload = { ...item } as any;
+                    delete (payload as any).id;
+                    payload.created_at = serverTimestamp();
+                    payload.updated_at = serverTimestamp();
+                    // If id exists, preserve it; otherwise generate a new doc id
+                    const targetRef = item?.id
+                      ? doc(firestore, 'calendars', calId!, sub.name, String(item.id))
+                      : doc(collection(firestore, 'calendars', calId!, sub.name));
+                    batch.set(targetRef, payload);
+                    count++;
+                    if (count >= 400) { await batch.commit(); batch = writeBatch(firestore); count = 0; }
+                  }
+                  if (count > 0) await batch.commit();
+                }
+
+                // Persist select settings on the calendar doc (optional but useful cross-device)
+                await setDoc(
+                  doc(firestore, 'calendars', calId!),
+                  {
+                    timezone: importedData.timezone ?? null,
+                    rolloverPreference: importedData.rolloverPreference ?? null,
+                    initialBalance: importedData.initialBalance ?? null,
+                    updated_at: serverTimestamp(),
+                  },
+                  { merge: true }
+                );
+
+                toast({ title: "Import Successful!", description: "Data loaded and saved to your Google account." });
+              } catch (cloudErr: any) {
+                console.warn('Cloud import failed, kept local state:', cloudErr);
+                toast({ title: "Imported Locally", description: "Could not save to cloud right now. Your data is loaded locally.", variant: "destructive" });
+              }
+            } else {
+              toast({ title: "Import Successful!", description: "Your data has been loaded locally. Sign in to sync to cloud." });
+            }
 
         } catch (error: any) {
             toast({ title: "Import Failed", description: error.message || "Could not import data from the selected file.", variant: "destructive" });

@@ -59,15 +59,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    // Put the app into a loading state so consumers don't render with stale user.
+    setLoading(true);
     try {
       if (firebaseEnabled && auth.currentUser) {
         await firebaseSignOut(auth);
       }
     } catch (error) {
+      // Never let sign-out errors crash the app; just log and continue.
       console.error("Error during sign-out:", error);
     } finally {
+      try {
+        // Clear user-scoped local state to avoid cross-account leaks.
+        if (typeof window !== 'undefined') {
+          const keys = [
+            'centseiActiveCalendarId',
+            'centseiNotificationsEnabled',
+            'centseiCalendarId',
+            'centseiRollover',
+            'centseiTimezone',
+            'centseiBudgetScoreHistory',
+            'centseiLastWelcome',
+            'centseiInitialBalance',
+          ];
+          keys.forEach((k) => {
+            try { localStorage.removeItem(k); } catch {}
+          });
+        }
+      } catch {}
       setUser(null);
-      router.push('/login');
+      setLoading(false);
+      // Prefer a replace to prevent navigating "back" into an authed screen.
+      try {
+        router.replace('/login');
+      } catch {
+        // As a hard fallback, force a full page reload to the login page.
+        if (typeof window !== 'undefined') window.location.replace('/login');
+      }
     }
   };
 
