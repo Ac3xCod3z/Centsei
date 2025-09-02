@@ -383,45 +383,51 @@ export function SettingsDialog({
             }
 
             // Handle authenticated user
-            if (!calendarId) {
+            let calId = calendarId;
+            if (!calId) {
+              try {
+                calId = await ensurePersonalCalendar(firestore, user.uid);
+                setCalendarId(calId);
+              } catch {
                 toast({ title: "Imported Locally", description: "Could not save to cloud yet. Please wait a moment and try again.", variant: "destructive" });
                 // Still load locally so user doesn't lose the data.
                 if (importedData.entries && Array.isArray(importedData.entries)) onEntriesChange(importedData.entries);
                 return;
+              }
             }
 
             const batch = writeBatch(firestore);
 
             // Clear existing data
-            const entriesSnap = await getDocs(collection(firestore, 'calendars', calendarId, 'calendar_entries'));
+            const entriesSnap = await getDocs(collection(firestore, 'calendars', calId!, 'calendar_entries'));
             entriesSnap.forEach(doc => batch.delete(doc.ref));
-            const goalsSnap = await getDocs(collection(firestore, 'calendars', calendarId, 'goals'));
+            const goalsSnap = await getDocs(collection(firestore, 'calendars', calId!, 'goals'));
             goalsSnap.forEach(doc => batch.delete(doc.ref));
-            const birthdaysSnap = await getDocs(collection(firestore, 'calendars', calendarId, 'birthdays'));
+            const birthdaysSnap = await getDocs(collection(firestore, 'calendars', calId!, 'birthdays'));
             birthdaysSnap.forEach(doc => batch.delete(doc.ref));
 
             // Write new data
             if (importedData.entries && Array.isArray(importedData.entries)) {
                 importedData.entries.forEach((entry: MasterEntry) => {
-                    const docRef = doc(collection(firestore, 'calendars', calendarId, 'calendar_entries'));
+                    const docRef = doc(collection(firestore, 'calendars', calId!, 'calendar_entries'));
                     batch.set(docRef, { ...entry, id: undefined }); // Firestore will generate ID
                 });
             }
             if (importedData.goals && Array.isArray(importedData.goals)) {
               importedData.goals.forEach((goal: Goal) => {
-                  const docRef = doc(collection(firestore, 'calendars', calendarId, 'goals'));
+                  const docRef = doc(collection(firestore, 'calendars', calId!, 'goals'));
                   batch.set(docRef, { ...goal, id: undefined });
               });
             }
              if (importedData.birthdays && Array.isArray(importedData.birthdays)) {
               importedData.birthdays.forEach((birthday: Birthday) => {
-                  const docRef = doc(collection(firestore, 'calendars', calendarId, 'birthdays'));
+                  const docRef = doc(collection(firestore, 'calendars', calId!, 'birthdays'));
                   batch.set(docRef, { ...birthday, id: undefined });
               });
             }
 
             // Update calendar settings
-            const calDocRef = doc(firestore, 'calendars', calendarId);
+            const calDocRef = doc(firestore, 'calendars', calId!);
             batch.update(calDocRef, {
                 timezone: importedData.timezone ?? timezone,
                 rolloverPreference: importedData.rolloverPreference ?? rolloverPreference,

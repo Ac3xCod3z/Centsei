@@ -417,10 +417,18 @@ export default function CentseiDashboard() {
     entryToSave: Omit<Entry, 'id' | 'date'> & { id?: string; date: Date; originalDate?: string },
     isSeriesUpdate = false
 ) => {
-    if (!calendarId) {
-      toast({ title: 'Cannot Save Yet', description: 'Still preparing your calendar. Please try again in a moment.', variant: 'destructive' });
-      return;
+    // Ensure we have a calendar before attempting to write
+    let ensuredCalId = calendarId;
+    if (!ensuredCalId && user && firestore) {
+      try {
+        ensuredCalId = await ensurePersonalCalendar(firestore, user.uid);
+        setCalendarId(ensuredCalId);
+      } catch (e) {
+        toast({ title: 'Cannot Save Yet', description: 'Still preparing your calendar. Please try again in a moment.', variant: 'destructive' });
+        return;
+      }
     }
+    if (!ensuredCalId) { return; }
 
     const { originalDate, ...data } = entryToSave;
     const masterId = data.id ? getOriginalIdFromInstance(data.id) : undefined;
@@ -444,11 +452,11 @@ export default function CentseiDashboard() {
         } else {
             updatedEntry = updateSingleOccurrence(masterEntry, originalDate || saveData.date, saveData);
         }
-        await updateDoc(doc(firestore, 'calendars', calendarId, 'calendar_entries', masterId), stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
+        await updateDoc(doc(firestore, 'calendars', ensuredCalId, 'calendar_entries', masterId), stripUndefined({ ...updatedEntry, id: undefined, updated_at: serverTimestamp() }));
 
     } else { // New entry
         const newEntryData = { ...saveData, created_at: serverTimestamp(), updated_at: serverTimestamp() };
-        await addDoc(collection(firestore, 'calendars', calendarId, 'calendar_entries'), stripUndefined(newEntryData));
+        await addDoc(collection(firestore, 'calendars', ensuredCalId, 'calendar_entries'), stripUndefined(newEntryData));
     }
 
     if(notificationsEnabled) scheduleNotificationsLocal(entries, timezone, toast);
