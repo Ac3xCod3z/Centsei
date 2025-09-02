@@ -240,7 +240,7 @@ type SaveRequest = {
 };
 
 export default function CentseiDashboard() {
-  const { user, loading: authLoading, signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const router = useRouter();
 
   const pathname = usePathname();
@@ -671,19 +671,7 @@ export default function CentseiDashboard() {
     }
   }, [lastWelcomeMessage, toast, setLastWelcomeMessage]);
 
-
-  useEffect(() => {
-    if (!authLoading && !user) {
-        router.replace('/login');
-    }
-  }, [user, authLoading, router]);
-
   const rootRef = useRef<HTMLDivElement>(null);
-
-
-  if (authLoading || !user) {
-    return <CentseiLoader isAuthLoading />;
-  }
 
   const { handleMoveEntry, handleInstancePaidToggle, handleReorder } = useEntrySeriesActions({
     user,
