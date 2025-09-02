@@ -303,7 +303,7 @@ export default function CentseiDashboard() {
 
   // Ensure calendar and load calendar-scoped data
   useEffect(() => {
-    if (!user) {
+    if (!user || !firestore) {
         settingsLoadedRef.current = null; // Reset for potential re-login
         return;
     }
@@ -316,6 +316,7 @@ export default function CentseiDashboard() {
             setCalendarId(calId);
         } catch (e) {
             console.error("Failed to ensure calendar on mount:", e);
+            toast({ title: "Cloud Sync Error", description: "Could not connect to your cloud calendar. Please check your network and refresh.", variant: "destructive" });
             return;
         }
       }
@@ -353,7 +354,7 @@ export default function CentseiDashboard() {
 
     })();
     return () => unsubscribers.forEach(unsub => unsub());
-  }, [user, calendarId, setCalendarId, initialBalance, rolloverPreference, timezone, setInitialBalance, setRolloverPreference, setTimezone]);
+  }, [user, calendarId, setCalendarId, initialBalance, rolloverPreference, timezone, setInitialBalance, setRolloverPreference, setTimezone, toast]);
 
 
   useEffect(() => {

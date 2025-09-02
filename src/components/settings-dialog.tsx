@@ -370,88 +370,73 @@ export function SettingsDialog({
             }
             const importedData = JSON.parse(text);
             
-            if (importedData.entries && Array.isArray(importedData.entries)) onEntriesChange(importedData.entries);
-            if (importedData.goals && Array.isArray(importedData.goals)) onGoalsChange(importedData.goals);
-            if (importedData.birthdays && Array.isArray(importedData.birthdays)) onBirthdaysChange(importedData.birthdays);
-            if(importedData.rolloverPreference) onRolloverPreferenceChange(importedData.rolloverPreference);
-            if(importedData.timezone) onTimezoneChange(importedData.timezone);
-            if(importedData.initialBalance) onInitialBalanceChange(importedData.initialBalance);
-
-            // If signed in, persist imported data to the user's calendar in Firestore
-            if (user) {
-              if (!calendarId) {
-                toast({ title: "Imported Locally", description: "Could not save to cloud yet. Please wait a moment and try again.", variant: "destructive" });
-                return;
-              }
-              try {
-                // Determine or ensure the active calendar
-                const calId = calendarId;
-
-                // Clear existing subcollections then insert imported data
-                const subcollections = [
-                  { name: 'calendar_entries', items: importedData.entries || [] },
-                  { name: 'goals', items: importedData.goals || [] },
-                  { name: 'birthdays', items: importedData.birthdays || [] },
-                ] as const;
-
-                // Delete existing docs
-                for (const sub of subcollections) {
-                  const snap = await getDocs(collection(firestore, 'calendars', calId!, sub.name));
-                  const ops: (() => void)[] = [];
-                  // Allocate deletes to a batch
-                  let batch = writeBatch(firestore);
-                  let count = 0;
-                  for (const d of snap.docs) {
-                    batch.delete(d.ref);
-                    count++;
-                    if (count >= 400) { await batch.commit(); batch = writeBatch(firestore); count = 0; }
-                  }
-                  if (count > 0) await batch.commit();
-                }
-
-                // Write imported docs
-                for (const sub of subcollections) {
-                  let batch = writeBatch(firestore);
-                  let count = 0;
-                  for (const item of sub.items) {
-                    const payload = { ...item } as any;
-                    delete (payload as any).id;
-                    payload.created_at = serverTimestamp();
-                    payload.updated_at = serverTimestamp();
-                    // If id exists, preserve it; otherwise generate a new doc id
-                    const targetRef = item?.id
-                      ? doc(firestore, 'calendars', calId!, sub.name, String(item.id))
-                      : doc(collection(firestore, 'calendars', calId!, sub.name));
-                    batch.set(targetRef, payload);
-                    count++;
-                    if (count >= 400) { await batch.commit(); batch = writeBatch(firestore); count = 0; }
-                  }
-                  if (count > 0) await batch.commit();
-                }
-
-                // Persist select settings on the calendar doc (optional but useful cross-device)
-                await setDoc(
-                  doc(firestore, 'calendars', calId!),
-                  {
-                    timezone: importedData.timezone ?? null,
-                    rolloverPreference: importedData.rolloverPreference ?? null,
-                    initialBalance: importedData.initialBalance ?? null,
-                    updated_at: serverTimestamp(),
-                  },
-                  { merge: true }
-                );
-
-                toast({ title: "Import Successful!", description: "Data loaded and saved to your Google account." });
-              } catch (cloudErr: any) {
-                console.warn('Cloud import failed, kept local state:', cloudErr);
-                toast({ title: "Imported Locally", description: "Could not save to cloud right now. Your data is loaded locally.", variant: "destructive" });
-              }
-            } else {
-              toast({ title: "Import Successful!", description: "Your data has been loaded locally. Sign in to sync to cloud." });
+            if (!user || !firestore) {
+              // Handle guest mode: just update local state
+              if (importedData.entries && Array.isArray(importedData.entries)) onEntriesChange(importedData.entries);
+              if (importedData.goals && Array.isArray(importedData.goals)) onGoalsChange(importedData.goals);
+              if (importedData.birthdays && Array.isArray(importedData.birthdays)) onBirthdaysChange(importedData.birthdays);
+              if(importedData.rolloverPreference) onRolloverPreferenceChange(importedData.rolloverPreference);
+              if(importedData.timezone) onTimezoneChange(importedData.timezone);
+              if(importedData.initialBalance) onInitialBalanceChange(importedData.initialBalance);
+              toast({ title: "Imported Locally", description: "Your data has been loaded. Sign in to save to the cloud." });
+              return;
             }
 
+            // Handle authenticated user
+            if (!calendarId) {
+                toast({ title: "Imported Locally", description: "Could not save to cloud yet. Please wait a moment and try again.", variant: "destructive" });
+                // Still load locally so user doesn't lose the data.
+                if (importedData.entries && Array.isArray(importedData.entries)) onEntriesChange(importedData.entries);
+                return;
+            }
+
+            const batch = writeBatch(firestore);
+
+            // Clear existing data
+            const entriesSnap = await getDocs(collection(firestore, 'calendars', calendarId, 'calendar_entries'));
+            entriesSnap.forEach(doc => batch.delete(doc.ref));
+            const goalsSnap = await getDocs(collection(firestore, 'calendars', calendarId, 'goals'));
+            goalsSnap.forEach(doc => batch.delete(doc.ref));
+            const birthdaysSnap = await getDocs(collection(firestore, 'calendars', calendarId, 'birthdays'));
+            birthdaysSnap.forEach(doc => batch.delete(doc.ref));
+
+            // Write new data
+            if (importedData.entries && Array.isArray(importedData.entries)) {
+                importedData.entries.forEach((entry: MasterEntry) => {
+                    const docRef = doc(collection(firestore, 'calendars', calendarId, 'calendar_entries'));
+                    batch.set(docRef, { ...entry, id: undefined }); // Firestore will generate ID
+                });
+            }
+            if (importedData.goals && Array.isArray(importedData.goals)) {
+              importedData.goals.forEach((goal: Goal) => {
+                  const docRef = doc(collection(firestore, 'calendars', calendarId, 'goals'));
+                  batch.set(docRef, { ...goal, id: undefined });
+              });
+            }
+             if (importedData.birthdays && Array.isArray(importedData.birthdays)) {
+              importedData.birthdays.forEach((birthday: Birthday) => {
+                  const docRef = doc(collection(firestore, 'calendars', calendarId, 'birthdays'));
+                  batch.set(docRef, { ...birthday, id: undefined });
+              });
+            }
+
+            // Update calendar settings
+            const calDocRef = doc(firestore, 'calendars', calendarId);
+            batch.update(calDocRef, {
+                timezone: importedData.timezone ?? timezone,
+                rolloverPreference: importedData.rolloverPreference ?? rolloverPreference,
+                initialBalance: importedData.initialBalance ?? initialBalance,
+                updated_at: serverTimestamp()
+            });
+
+            await batch.commit();
+
+            toast({ title: "Import Successful!", description: "Data loaded and saved to your account." });
+            // The onSnapshot listeners will update the local state automatically.
+            
         } catch (error: any) {
             toast({ title: "Import Failed", description: error.message || "Could not import data from the selected file.", variant: "destructive" });
+            console.error("Import error:", error);
         } finally {
             if(fileInputRef.current) {
                 fileInputRef.current.value = "";
