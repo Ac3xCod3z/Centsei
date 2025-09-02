@@ -29,7 +29,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    if (!firebaseEnabled) {
+    if (!firebaseEnabled || !auth) {
         setLoading(false);
         // Maybe render a "service unavailable" screen
         return;
@@ -62,7 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Put the app into a loading state so consumers don't render with stale user.
     setLoading(true);
     try {
-      if (firebaseEnabled && auth.currentUser) {
+      if (firebaseEnabled && auth && auth.currentUser) {
         await firebaseSignOut(auth);
       }
     } catch (error) {
