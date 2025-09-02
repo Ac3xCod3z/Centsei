@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useCallback } from "react";
@@ -8,6 +9,7 @@ import { stripUndefined } from "@/lib/utils";
 import { parseDateInTimezone } from "@/lib/time";
 import { moveOneTime, moveSeries, moveSingleOccurrence, validateMaster, updateSingleOccurrence } from "@/lib/move";
 import { ensurePersonalCalendar } from "@/lib/calendars";
+import { useCalendar } from "@/contexts/CalendarContext";
 
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
 
@@ -32,6 +34,8 @@ export function useEntrySeriesActions({
   toast,
   setMoveRequest,
 }: Params) {
+    const { setCalendarId } = useCalendar();
+
   function getOriginalIdFromInstance(key: string) {
     const m = key.match(/^(.*)-(\d{4})-(\d{2})-(\d{2})$/);
     return m ? m[1] : key;
@@ -56,7 +60,7 @@ export function useEntrySeriesActions({
       if (user && firestore) {
         let calId = calendarId;
         if (!calId) {
-          try { calId = await ensurePersonalCalendar(firestore, user.uid); } catch {}
+          try { calId = await ensurePersonalCalendar(firestore, user.uid); setCalendarId(calId) } catch {}
         }
         if (!calId) { setEntries((prev) => prev.map((e) => (e.id === masterId ? updatedEntry : e))); setMoveRequest(null); toast({ title: "Entry Moved (Local)", description: `Moved to ${format(parseDateInTimezone(newDate, timezone), 'MMM d, yyyy')}` }); return; }
         const docRef = doc(firestore, 'calendars', calId, 'calendar_entries', masterId);
@@ -68,7 +72,7 @@ export function useEntrySeriesActions({
       setMoveRequest(null);
       toast({ title: "Entry Moved", description: `Moved to ${format(parseDateInTimezone(newDate, timezone), 'MMM d, yyyy')}` });
     },
-    [entries, firestore, setEntries, setMoveRequest, timezone, toast, user]
+    [entries, firestore, setEntries, setMoveRequest, timezone, toast, user, calendarId, setCalendarId]
   );
 
   const handleInstancePaidToggle = useCallback(
@@ -83,7 +87,7 @@ export function useEntrySeriesActions({
       if (user && firestore) {
         let calId = calendarId;
         if (!calId) {
-          try { calId = await ensurePersonalCalendar(firestore, user.uid); } catch {}
+          try { calId = await ensurePersonalCalendar(firestore, user.uid); setCalendarId(calId); } catch {}
         }
         if (!calId) { setEntries((prev) => prev.map((e) => (e.id === masterId ? updatedEntry : e))); return; }
         const docRef = doc(firestore, 'calendars', calId, 'calendar_entries', masterId);
@@ -92,7 +96,7 @@ export function useEntrySeriesActions({
         setEntries((prev) => prev.map((e) => (e.id === masterId ? updatedEntry : e)));
       }
     },
-    [entries, firestore, setEntries, user]
+    [entries, firestore, setEntries, user, calendarId, setCalendarId]
   );
 
   const handleReorder = useCallback(
@@ -115,7 +119,7 @@ export function useEntrySeriesActions({
       if (user && firestore) {
         let calId = calendarId;
         if (!calId) {
-          try { calId = await ensurePersonalCalendar(firestore, user.uid); } catch {}
+          try { calId = await ensurePersonalCalendar(firestore, user.uid); setCalendarId(calId); } catch {}
         }
         if (!calId) {
           setEntries((prevEntries) => prevEntries.map((e) => (masterUpdates.get(e.id) as any) || e));
@@ -133,7 +137,7 @@ export function useEntrySeriesActions({
 
       toast({ title: "Order Saved", description: "Your new entry order has been saved." });
     },
-    [entries, firestore, setEntries, toast, user]
+    [entries, firestore, setEntries, toast, user, calendarId, setCalendarId]
   );
 
   return { handleMoveEntry, handleInstancePaidToggle, handleReorder };

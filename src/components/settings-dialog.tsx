@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -378,7 +377,7 @@ export function SettingsDialog({
             if(importedData.initialBalance) onInitialBalanceChange(importedData.initialBalance);
 
             // If signed in, persist imported data to the user's calendar in Firestore
-            if (user) {
+            if (user && calendarId) {
               try {
                 // Determine or ensure the active calendar
                 let calId = calendarId;
@@ -761,5 +760,3 @@ export function SettingsDialog({
     </Dialog>
   );
 }
-
-    
