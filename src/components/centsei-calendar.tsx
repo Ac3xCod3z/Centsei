@@ -348,9 +348,37 @@ export function CentseiCalendar(props: CentseiCalendarProps) {
         <header className="mb-4 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-2">
                 <Button onClick={goToPreviousMonth} variant="outline" size="icon" className="h-9 w-9"><ChevronLeft className="h-5 w-5" /></Button>
-                <h2 className="text-xl md:text-2xl font-bold text-center">
-                    {format(currentMonthDate, "MMMM yyyy")}
-                </h2>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-9 px-3 font-semibold">
+                      {format(currentMonthDate, "MMMM yyyy")}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-auto p-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <Select value={String(getMonth(currentMonthDate))} onValueChange={handleMonthChange}>
+                        <SelectTrigger className="w-36">
+                          <SelectValue placeholder="Month" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {MONTHS.map((m, idx) => (
+                            <SelectItem key={idx} value={String(idx)}>{m}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select value={String(currentYear)} onValueChange={handleYearChange}>
+                        <SelectTrigger className="w-28">
+                          <SelectValue placeholder="Year" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {years.map((y) => (
+                            <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </PopoverContent>
+                </Popover>
                 <Button onClick={goToNextMonth} variant="outline" size="icon" className="h-9 w-9"><ChevronRight className="h-5 w-5" /></Button>
                 <Button onClick={goToToday} variant="outline" className="hidden sm:inline-flex">Today</Button>
             </div>

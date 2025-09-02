@@ -104,3 +104,108 @@ This is the central part of the application.
     *   Each entry type is preceded by a distinct icon (e.g., bill icon for bills, money icon for income).
     *   When an entry is marked as "paid" or "received," its icon is replaced with a grey checkmark, its name is struck through, and its background becomes a muted grey (`bg-secondary`). This provides a clear visual confirmation of completed transactions.
     *   The background of each entry is rendered with rounded corners (`rounded-md`).
+
+---
+
+## Auth & Cloud Sync Flow (Source of Truth)
+
+This section documents the exact flow the app follows to avoid race conditions and permission errors when working with Firestore. It reflects the working behavior as of the latest fixes.
+
+### Providers and Bootstrapping
+
+- App root wraps children with:
+  - `AuthProvider` — exposes `user`, `loading`, `signInWithGoogle`, `signOut`.
+  - `CalendarProvider` — holds the active `calendarId` in localStorage for fast resume.
+  - `ThemeProvider`, `Toaster`.
+
+### Login Flow
+
+1. `AuthProvider` subscribes to `onAuthStateChanged` and sets `user` when Firebase Auth finishes.
+2. No Firestore read/writes are attempted inside `AuthProvider` — consumers own data flows.
+3. When `user` becomes non-null, consumers (dashboard, settings) may begin ensuring/reading data.
+
+### Calendar Bootstrap (robust against races)
+
+- Helper: `ensurePersonalCalendar(firestore, uid)`
+  1. Try `where('ownerId','==', uid)` query. If it returns a doc, use its id.
+  2. On empty result or transient error, try `addDoc('calendars', { ownerId: uid, members:[uid], ...})`.
+  3. If creation is blocked (e.g., propagation delay), upsert to deterministic id `calendars/{uid}` with `setDoc(..., { merge: true })`.
+  4. Return the resolved calendar id.
+
+- Where this runs:
+  - On mount in `CentseiDashboard` to set `calendarId` and attach live listeners.
+  - Before any write action (save, move, reorder, mark as paid) if `calendarId` is not yet available.
+  - Before authenticated imports in `SettingsDialog`.
+
+Rationale: This eliminates the window where Auth is ready but Firestore hasn’t fully recognized permissions yet (“Missing or insufficient permissions”).
+
+### Live Data Subscriptions
+
+- After a `calendarId` is available, `CentseiDashboard` subscribes via `onSnapshot` to:
+  - `calendars/{calendarId}/calendar_entries`
+  - `calendars/{calendarId}/goals`
+  - `calendars/{calendarId}/birthdays`
+- Listeners keep UI state in sync without manual refresh after writes/imports.
+
+### Save/Update/Delete Flow (Entries)
+
+1. On save, if `calendarId` is missing and `user` exists, call `ensurePersonalCalendar` and set it.
+2. Normalize payload:
+   - Convert Date objects to `yyyy-MM-dd` strings.
+   - For updates to recurring series, compute changes against master record (via `move.ts`).
+3. Write:
+   - New entry: `addDoc('calendars/{calendarId}/calendar_entries', payload)`.
+   - Update existing: `updateDoc('.../calendar_entries/{masterId}', {..., updated_at: serverTimestamp()})`.
+4. UI feedback via toasts; list subscriptions update the view.
+
+### Mark Paid / Move / Reorder (Series-Aware)
+
+- Implemented in `useEntrySeriesActions`:
+  - Ensures calendar on first write.
+  - Computes series deltas (move one, move series, toggle paid for an instance) and updates master doc.
+  - Uses `updateDoc` or a `writeBatch` for reorder to commit exceptions by date.
+
+### Import/Export Flow
+
+Export
+- Generate JSON of `entries`, `goals`, `birthdays`, `rolloverPreference`, `timezone`, `initialBalance` and download as a file.
+
+Import (Guest)
+- Parse JSON and apply to local state only. Show toast: “Imported Locally…”.
+
+Import (Authenticated)
+1. Ensure `calendarId` via `ensurePersonalCalendar` if not already set.
+2. Batch:
+   - Clear existing docs in `calendar_entries`, `goals`, `birthdays` for that calendar.
+   - Insert new docs; IMPORTANT: never write `id` fields. Firestore generates server IDs. Undefined fields are removed.
+3. Update calendar-level settings document with `timezone`, `rolloverPreference`, `initialBalance` and `updated_at: serverTimestamp()`.
+4. Listeners reflect imported data immediately; show toast: “Import Successful! Data saved to your account.”
+
+### Error Handling & UX Contracts
+
+- Permission/race protection:
+  - All write paths first ensure the calendar when `user` exists and `calendarId` is missing.
+  - If ensure fails, show a non-blocking toast and keep the UI responsive.
+
+- Write validation:
+  - Never include `undefined` values in Firestore writes; omit optional fields instead.
+  - Never persist client-generated `id` fields on import; allow server-generated IDs.
+
+- Toast semantics:
+  - “Cannot Save Yet” only appears if calendar ensure failed; users can retry without losing UI state.
+  - “Imported Locally” is reserved for guest mode, or when signed-in but ensure failed — data is still visible and can be retried.
+
+### Firestore Rules Alignment (Summary)
+
+- calendars: create allowed only when `request.auth.uid == request.resource.data.ownerId`.
+- calendars/{calendarId}: read/update/delete allowed for members.
+- Subcollections under a calendar inherit member permissions.
+- users/{userId} and its subcollections are only accessible by that user (used by “Sensei Says”).
+
+### Operational Tips
+
+- Local-first: `CalendarProvider` caches `calendarId` in `localStorage` for faster resume.
+- If you change rules, re-test the ensure flow (query → addDoc → setDoc fallback).
+- Network hiccups: Firebase retry is usually enough; for persistent outages, a small ensure retry/backoff can be added.
+
+This flow has been validated to prevent the previous “Missing or insufficient permissions” and “Unsupported field value: undefined” errors during login, save, and import.
