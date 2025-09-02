@@ -52,7 +52,7 @@ import { getCalendarAccessToken } from "@/lib/calendar-auth";
 import { exportEntries, createCentseiCalendar, deleteCentseiEvents, type CentseiEntryForCalendar } from "@/lib/google-calendar-helpers";
 import { parseDateInTimezone } from "@/lib/time";
 import { generateIcsContent } from "@/lib/ics-generator";
-import { collection, doc, getDocs, writeBatch, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDocs, writeBatch, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { firestore } from '@/lib/firebase';
 import { ensurePersonalCalendar } from '@/lib/calendars';
 import { useCalendar } from '@/contexts/CalendarContext';
@@ -124,12 +124,9 @@ export function SettingsDialog({
   const [ownerId, setOwnerId] = useState<string>("");
 
   async function refreshMembers() {
+    if (!user || !calendarId) return;
     try {
-      const calId = typeof window !== 'undefined' ? localStorage.getItem('centseiActiveCalendarId') : null;
-      if (!calId) return;
-      const { doc, getDoc } = await import('firebase/firestore');
-      const { firestore } = await import('@/lib/firebase');
-      const cdoc = await getDoc(doc(firestore, 'calendars', calId));
+      const cdoc = await getDoc(doc(firestore, 'calendars', calendarId));
       if (!cdoc.exists()) return;
       const data: any = cdoc.data();
       setOwnerId(data.ownerId || "");
@@ -155,19 +152,20 @@ export function SettingsDialog({
   }
 
   useEffect(() => {
-    if (isOpen) refreshMembers();
-  }, [isOpen]);
+    if (isOpen && user && calendarId) {
+      refreshMembers();
+    }
+  }, [isOpen, user, calendarId]);
+
 
   async function onInvite() {
-    if (!inviteEmail || !user) return;
+    if (!inviteEmail || !user || !calendarId) return;
     try {
-      const calId = typeof window !== 'undefined' ? localStorage.getItem('centseiActiveCalendarId') : null;
-      if (!calId) return;
       const idToken = await user.getIdToken();
       const res = await fetch('/api/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ calendarId: calId, email: inviteEmail }),
+        body: JSON.stringify({ calendarId, email: inviteEmail }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Invite failed');
@@ -180,15 +178,13 @@ export function SettingsDialog({
   }
 
   async function onRemove(uid: string) {
-    if (!user) return;
+    if (!user || !calendarId) return;
     try {
-      const calId = typeof window !== 'undefined' ? localStorage.getItem('centseiActiveCalendarId') : null;
-      if (!calId) return;
       const idToken = await user.getIdToken();
       const res = await fetch('/api/invite/remove', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ calendarId: calId, removeUid: uid }),
+        body: JSON.stringify({ calendarId: calendarId, removeUid: uid }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Remove failed');
@@ -602,7 +598,7 @@ export function SettingsDialog({
                         <Button onClick={handleExportData} variant="outline">
                             <Download className="mr-2 h-4 w-4" /> Export Data
                         </Button>
-                        <Button onClick={() => fileInputRef.current?.click()} variant="outline">
+                        <Button onClick={() => user && fileInputRef.current?.click()} variant="outline" disabled={!user}>
                            <Upload className="mr-2 h-4 w-4" /> Import Data
                         </Button>
                         <input
@@ -611,6 +607,7 @@ export function SettingsDialog({
                             onChange={handleImportData}
                             className="hidden"
                             accept="application/json"
+                            disabled={!user}
                         />
                    </div>
               </div>
@@ -654,7 +651,7 @@ export function SettingsDialog({
                       disabled={notificationPermission === 'denied'}
                   >
                       {notificationsEnabled ? <BellOff className="mr-2 h-4 w-4" /> : <Bell className="mr-2 h-4 w-4" />}
-                      {notificationsEnabled ? 'Disable Notifications' : 'Enable Notifications'}
+                      {notificationsEnabled ? 'Disable Notifications' : 'Disable Notifications'}
                   </Button>
                   {notificationPermission === 'denied' && (
                       <p className="text-xs text-destructive text-center">You have blocked notifications. Please enable them in your browser settings.</p>
@@ -764,3 +761,5 @@ export function SettingsDialog({
     </Dialog>
   );
 }
+
+    
